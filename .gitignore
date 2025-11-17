@@ -1,0 +1,22 @@
+data/
+.env
+.vscode/
+node_modules/
+.DS_Store
+dist/
+build/
+coverage/
+*.log
+.coverage*
+.idea/
+*.iml
+*.swp
+thumbs.db
+venv/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+# C extensions
+*.so   
