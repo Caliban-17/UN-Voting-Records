@@ -1,0 +1,278 @@
+name: Publish Weekly Atlas to Substack
+
+# Composes the Weekly Atlas newsletter on a schedule and emails it to your
+# Substack publication inbox (publish@<yourpub>.substack.com), where Substack
+# converts the inbound email into a draft post you can review and publish.
+#
+# Schedule reasoning (see README "Publishing schedule"):
+#   • Mon 22:00 UTC — pull the latest UN votes (refresh-data.yml)
+#   • Tue 09:00 UTC — compose + email to Substack inbox
+# Tuesday morning hits UK 09:00, EU 10:00–11:00, US East overnight, Tokyo evening
+# — the highest-open window for a global IR/diplomacy audience.
+
+on:
+  workflow_dispatch:
+    inputs:
+      recent_year:
+        description: "Year for the lead edition (default: latest in dataset)"
+        required: false
+      baseline_window:
+        description: "Years of baseline to compare against"
+        required: false
+        default: "3"
+      country:
+        description: "Optional ISO-3 country focus (e.g. ARG)"
+        required: false
+      dry_run:
+        description: "Compose only — do not send any email"
+        required: false
+        default: "false"
+      recipient_override:
+        description: "Send to this address instead of the Substack inbox (use to test pipeline against your own Gmail)"
+        required: false
+  schedule:
+    # Tuesday 09:00 UTC — see README "Publishing schedule".
+    - cron: "0 9 * * 2"
+
+concurrency:
+  group: publish-newsletter
+  cancel-in-progress: false
+
+jobs:
+  compose-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write          # so the "Archive to repo" step can commit
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Fetch the freshest CSV — look for the latest "data-*" GitHub Release
+      # first (auto-created by refresh-data.yml on Mondays), fall back to
+      # the static ATLAS_DATA_URL secret if no release exists yet.
+      - name: Fetch UN voting CSV from latest data release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATLAS_DATA_URL: ${{ secrets.ATLAS_DATA_URL }}
+        run: |
+          set -e
+          mkdir -p data
+          LATEST_TAG=$(gh release list --limit 100 \
+            --json tagName,createdAt \
+            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.createdAt) | last.tagName')
+          if [ -n "$LATEST_TAG" ]; then
+            echo "Using latest data release: $LATEST_TAG"
+            gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
+            mv data/*.csv data/2025_03_31_ga_voting_corr1.csv
+          elif [ -n "$ATLAS_DATA_URL" ]; then
+            echo "No data release yet; falling back to ATLAS_DATA_URL."
+            curl -fSL "$ATLAS_DATA_URL" -o data/2025_03_31_ga_voting_corr1.csv
+          else
+            echo "::warning::No data source configured — workflow will exit."
+            exit 0
+          fi
+          echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
+
+      - name: Fail loudly if data is stale
+        if: ${{ hashFiles('data/*.csv') != '' }}
+        run: |
+          python - <<'PY'
+          import sys
+          from datetime import datetime, timezone
+          import pandas as pd
+          df = pd.read_csv("data/2025_03_31_ga_voting_corr1.csv", low_memory=False)
+          latest = pd.to_datetime(df["date"], errors="coerce").max()
+          days = (datetime.now(timezone.utc) - latest.tz_localize("UTC")).days
+          print(f"Latest vote in CSV: {latest.date()} ({days} days ago)")
+          if days > 90:
+              print(f"::error::Data is {days} days old — refusing to publish stale newsletter.")
+              sys.exit(1)
+          PY
+
+      - name: Compose edition
+        if: ${{ hashFiles('data/*.csv') != '' }}
+        env:
+          RECENT_YEAR: ${{ inputs.recent_year }}
+          BASELINE_WINDOW: ${{ inputs.baseline_window }}
+          COUNTRY_FOCUS: ${{ inputs.country }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          sys.path.insert(0, ".")
+          from src.config import UN_VOTES_CSV_PATH
+          from src.data_processing import load_and_preprocess_data
+          from src.newsletter import build_newsletter_edition
+          from src.newsletter_archive import save_edition
+
+          df, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH))
+          recent_year = int(os.getenv("RECENT_YEAR") or df["year"].max())
+          baseline_window = int(os.getenv("BASELINE_WINDOW") or 3)
+          country_focus = (os.getenv("COUNTRY_FOCUS") or "").strip().upper() or None
+
+          name_lookup = {}
+          if "country_name" in df.columns:
+              names = df[["country_identifier", "country_name"]].dropna().drop_duplicates(
+                  subset=["country_identifier"]
+              )
+              name_lookup = {
+                  str(r.country_identifier).strip().upper(): str(r.country_name)
+                  for r in names.itertuples(index=False)
+              }
+          edition = build_newsletter_edition(
+              df, recent_year=recent_year,
+              baseline_window_years=baseline_window,
+              name_lookup=name_lookup,
+              country_focus=country_focus,
+          )
+          written = save_edition(edition)
+          out = {
+              "slug": edition.edition_slug,
+              "subject": edition.email_subject,
+              "html_path": written["html"],
+              "md_path": written["md"],
+              "txt_path": written["txt"],
+              "json_path": written["json"],
+              "country_focus": edition.country_focus,
+          }
+          print(json.dumps(out, indent=2))
+          os.makedirs(".github/atlas-out", exist_ok=True)
+          with open(".github/atlas-out/edition.json", "w") as f:
+              json.dump(out, f)
+          PY
+
+      - name: Skip-if-unchanged gate
+        # Reads the previously archived editions and compares content_hash.
+        # If the edition we just composed is identical in content to the
+        # last published one, we set GH output 'skip=true' and exit early
+        # — guarantees we never ship the same edition two weeks in a row.
+        id: gate
+        if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          sys.path.insert(0, ".")
+          from src.newsletter_archive import list_editions
+
+          this = json.load(open(".github/atlas-out/edition.json"))
+          # The composer wrote {slug, subject, paths...} but not the hash.
+          # Read it from the archived JSON of THIS run (save_edition wrote it).
+          with open(this["json_path"]) as f:
+              edition_obj = json.load(f)
+          this_hash = edition_obj.get("content_hash")
+
+          archived = list_editions()
+          # Find the most recent OTHER edition that matches our (recent_year, country_focus).
+          prior = next(
+              (e for e in archived
+               if e["slug"] != this["slug"]
+               and e.get("country_focus") == this.get("country_focus")
+               and e.get("content_hash")),
+              None,
+          )
+          if prior and prior["content_hash"] == this_hash:
+              print(f"::warning::Content unchanged since {prior['slug']} ({prior['edition_date']}). Skipping publish.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                  f.write("skip=true\n")
+              sys.exit(0)
+          print(f"Content fresh — hash {this_hash[:12]}… differs from previous. OK to publish.")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("skip=false\n")
+          PY
+
+      - name: Send to Substack publication inbox
+        if: ${{ inputs.dry_run != 'true' && steps.gate.outputs.skip != 'true' && hashFiles('.github/atlas-out/edition.json') != '' }}
+        env:
+          SMTP_HOST: ${{ secrets.ATLAS_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.ATLAS_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.ATLAS_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.ATLAS_SMTP_PASS }}
+          SUBSTACK_INBOX: ${{ secrets.ATLAS_SUBSTACK_INBOX }}
+          SMTP_FROM: ${{ secrets.ATLAS_SMTP_FROM }}
+          RECIPIENT_OVERRIDE: ${{ inputs.recipient_override }}
+          ATLAS_RECENT_YEAR: ${{ inputs.recent_year }}
+          ATLAS_BASELINE_WINDOW: ${{ inputs.baseline_window }}
+          ATLAS_COUNTRY: ${{ inputs.country }}
+        run: |
+          python - <<'PY'
+          import os
+          import smtplib
+          import sys
+
+          sys.path.insert(0, ".")
+          required = ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"]
+          missing = [k for k in required if not os.environ.get(k)]
+          if missing:
+              raise SystemExit(f"Missing secrets: {missing}")
+          to_addr = (
+              os.environ.get("RECIPIENT_OVERRIDE")
+              or os.environ.get("SUBSTACK_INBOX")
+          )
+          if not to_addr:
+              raise SystemExit("No recipient: set ATLAS_SUBSTACK_INBOX or pass recipient_override.")
+
+          from src.config import UN_VOTES_CSV_PATH
+          from src.country_display import display_lookup
+          from src.data_processing import load_and_preprocess_data
+          from src.newsletter import build_newsletter_edition
+          from src.newsletter_email import build_email_message
+
+          df, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH), use_cache=False)
+          names_df = df[["country_identifier", "country_name"]].dropna().drop_duplicates(subset=["country_identifier"])
+          raw = {
+              str(r.country_identifier).strip().upper(): str(r.country_name)
+              for r in names_df.itertuples(index=False)
+          }
+          name_lookup = display_lookup(raw)
+
+          # If ATLAS_RECENT_YEAR is set, use it; otherwise let the composer
+          # auto-pick (which skips sparse in-progress years — see pick_recent_year).
+          recent_year_env = os.environ.get("ATLAS_RECENT_YEAR", "").strip()
+          recent_year = int(recent_year_env) if recent_year_env else None
+          baseline_window = int(os.environ.get("ATLAS_BASELINE_WINDOW") or 3)
+          country_focus = (os.environ.get("ATLAS_COUNTRY") or "").strip().upper() or None
+
+          edition = build_newsletter_edition(
+              df, recent_year=recent_year,
+              baseline_window_years=baseline_window,
+              name_lookup=name_lookup, country_focus=country_focus,
+          )
+          # Subject is action-oriented for the editor's inbox: "Ready to
+          # publish" rather than the headline. The headline lives inside
+          # the email body and inside the attached Markdown file (which
+          # is what gets pasted into the Substack draft).
+          msg = build_email_message(
+              edition,
+              sender=os.environ["SMTP_FROM"],
+              recipient=to_addr,
+              subject_override=(
+                  f"📰 Ready to publish: {edition.publication} "
+                  f"№{edition.edition_number}"
+              ),
+          )
+
+          host = os.environ["SMTP_HOST"]
+          port = int(os.environ.get("SMTP_PORT") or "465")
+          with smtplib.SMTP_SSL(host, port) as s:
+              s.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+              s.send_message(msg)
+          print(f"Sent '{edition.email_subject}' to {to_addr}")
+          PY
+
+      - name: Upload edition as workflow artifact
+        if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-atlas-edition
+          path: data/editions/

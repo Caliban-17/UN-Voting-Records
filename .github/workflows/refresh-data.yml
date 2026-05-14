@@ -1,0 +1,123 @@
+name: Refresh UN voting data
+
+# Weekly pull of new UN General Assembly voting records via UN Digital
+# Library's MARC-XML API (no Playwright, no Chromium — runs cleanly on
+# the free GH runner in ~2 minutes per refresh).
+#
+# Schedule sits 11 hours before the Tuesday 09:00 UTC publish slot so
+# there is time to manually intervene if the refresh produces something
+# unexpected.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many days back to fetch"
+        required: false
+        default: "14"
+      promote:
+        description: "Atomically swap the new file in as the source"
+        required: false
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 22 * * 1"   # Monday 22:00 UTC
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # ── Resolve the latest data release ────────────────────────────────────
+      # We pull the newest "data-*" GitHub Release rather than a fixed URL —
+      # so the refresh always starts from the freshest snapshot published by
+      # the previous run. Falls back to ATLAS_DATA_URL if no release exists.
+      - name: Fetch current CSV from latest data release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATLAS_DATA_URL: ${{ secrets.ATLAS_DATA_URL }}
+        run: |
+          set -e
+          mkdir -p data
+          LATEST_TAG=$(gh release list --limit 100 \
+            --json tagName,createdAt \
+            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.createdAt) | last.tagName')
+          if [ -n "$LATEST_TAG" ]; then
+            echo "Using latest data release: $LATEST_TAG"
+            gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
+            # Normalise the filename so refresh_data.py can find it.
+            mv data/*.csv data/2025_03_31_ga_voting_corr1.csv
+          elif [ -n "$ATLAS_DATA_URL" ]; then
+            echo "No data release yet; falling back to ATLAS_DATA_URL."
+            curl -fSL "$ATLAS_DATA_URL" -o data/2025_03_31_ga_voting_corr1.csv
+          else
+            echo "::warning::No data source configured — refresh exits no-op."
+            exit 0
+          fi
+          echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
+
+      - name: Run MARC-XML refresh (always promote in CI)
+        if: ${{ hashFiles('data/*.csv') != '' }}
+        run: python scripts/refresh_data.py --days "${{ inputs.days || '14' }}" --promote
+
+      # ── Auto-release the refreshed CSV if it actually changed ──────────────
+      # The refresh script writes a JSON marker at .github/atlas-out/refresh-result.json
+      # with the row delta. We only cut a new release when delta > 0; otherwise
+      # we'd be creating a daily duplicate of the same dataset.
+      - name: Publish new data release (only if rows changed)
+        id: release
+        if: ${{ hashFiles('.github/atlas-out/refresh-result.json') != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          DELTA=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json'))['delta'])")
+          LATEST_DATE=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json')).get('latest_vote_date','?'))")
+          ROWS=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json'))['source_rows'])")
+          echo "Refresh delta: $DELTA new rows. Source now at $LATEST_DATE ($ROWS total rows)."
+          if [ "$DELTA" -gt 0 ]; then
+            TAG="data-$(date -u +%Y-%m-%d)"
+            # If the same-day tag already exists (e.g. manual rerun), append -N.
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              for i in 1 2 3 4 5; do
+                if ! gh release view "$TAG-$i" >/dev/null 2>&1; then
+                  TAG="$TAG-$i"
+                  break
+                fi
+              done
+            fi
+            gh release create "$TAG" data/2025_03_31_ga_voting_corr1.csv \
+              --title "UN voting data — $(date -u +%Y-%m-%d) (Δ +$DELTA rows)" \
+              --notes "Auto-refresh via MARC-XML. $ROWS total rows; latest vote $LATEST_DATE; +$DELTA since last release."
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "Created release $TAG."
+          else
+            echo "::notice::Refresh produced 0 new rows — skipping release creation."
+          fi
+
+      - name: Upload candidate as workflow artifact (backup)
+        if: ${{ hashFiles('data/*.archived-*.csv') != '' || hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-csv-snapshot
+          path: |
+            data/2025_03_31_ga_voting_corr1.csv
+            .github/atlas-out/refresh-result.json
+          retention-days: 30

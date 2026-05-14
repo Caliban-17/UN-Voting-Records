@@ -1,0 +1,35 @@
+name: Validate known_events.json
+
+on:
+  push:
+    paths: ["data/known_events.json"]
+  pull_request:
+    paths: ["data/known_events.json"]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check JSON parses and every event has the required keys
+        run: |
+          python - <<'PY'
+          import json, sys
+          with open("data/known_events.json") as f:
+              data = json.load(f)
+          events = data.get("events", [])
+          if not events:
+              print("known_events.json has no events", file=sys.stderr); sys.exit(1)
+          for i, ev in enumerate(events):
+              for key in ("year", "label"):
+                  if key not in ev:
+                      print(f"event[{i}] missing key {key!r}", file=sys.stderr); sys.exit(1)
+              if not isinstance(ev["year"], int):
+                  print(f"event[{i}] year must be int", file=sys.stderr); sys.exit(1)
+              if not (1946 <= ev["year"] <= 2100):
+                  print(f"event[{i}] year {ev['year']} out of plausible range", file=sys.stderr); sys.exit(1)
+              if not isinstance(ev["label"], str) or not ev["label"].strip():
+                  print(f"event[{i}] label must be non-empty string", file=sys.stderr); sys.exit(1)
+          print(f"OK — {len(events)} events validated.")
+          PY

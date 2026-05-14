@@ -1,22 +1,65 @@
-data/
+# Environment
 .env
-.vscode/
-node_modules/
-.DS_Store
-dist/
-build/
-coverage/
-*.log
-.coverage*
-.idea/
-*.iml
-*.swp
-thumbs.db
 venv/
-
-# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
-*$py.class
-# C extensions
-*.so   
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+.cache/
+*.parquet
+*.pkl
+
+# Logs
+*.log
+output.log
+
+# Data (keep example but not actual)
+data/*.csv
+!data/.gitkeep
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+*.cover
+
+# Scratch / generated output
+output/
+test_warn.py
+
+# Frontend build artefacts
+node_modules/
+dist/
+.vite/
+
+# Build
+build/
+dist/
+*.egg-info/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Newsletter archive — composed editions are reproducible; don't bloat the repo
+data/editions/
+
+# Local agent / scratch dirs
+.claude/
+.playwright-cli/
+debug/
+.github/atlas-out/

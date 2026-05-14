@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UN Voting Intelligence Dashboard</title>
+  <link rel="icon" type="image/png" href="/static/img/favicon.png" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+  />
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+
+<body>
+  <div class="bg-orb bg-orb-a"></div>
+  <div class="bg-orb bg-orb-b"></div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-block">
+        <div class="brand-row">
+          <span class="brand-kicker">UN-Scrupulous</span>
+        </div>
+        <h1>Who does this country vote with?</h1>
+        <p>
+          Pick a country and a window. See the allies, the opponents, and how
+          alignment with the P5 has shifted across UN General Assembly votes.
+        </p>
+      </div>
+      <div class="top-actions">
+        <button id="shareViewBtn" class="btn btn-outline">
+          <i class="fas fa-link"></i>
+          Share View
+        </button>
+        <button id="downloadReportBtn" class="btn btn-outline">
+          <i class="fas fa-file-alt"></i>
+          Download Report
+        </button>
+        <button id="exportAnalysisBtn" class="btn btn-outline">
+          <i class="fas fa-download"></i>
+          Export Analysis
+        </button>
+        <button id="exportPredictionBtn" class="btn btn-outline">
+          <i class="fas fa-file-export"></i>
+          Export Prediction
+        </button>
+      </div>
+    </header>
+
+    <button
+      id="controlToggleBtn"
+      class="btn btn-outline control-toggle"
+      aria-expanded="true"
+      aria-controls="controlPanel"
+    >
+      <i class="fas fa-sliders-h"></i>
+      Analysis Controls
+    </button>
+
+    <section id="controlPanel" class="control-panel" aria-label="Analysis Controls">
+      <div class="control-item">
+        <label for="startYear">Start Year</label>
+        <input type="number" id="startYear" value="2010" min="1946" max="2025" />
+      </div>
+      <div class="control-item">
+        <label for="endYear">End Year</label>
+        <input type="number" id="endYear" value="2020" min="1946" max="2025" />
+      </div>
+      <div class="control-item control-slider">
+        <label for="numClusters">Clusters <span id="clusterVal">10</span></label>
+        <input type="range" id="numClusters" min="2" max="20" value="10" />
+      </div>
+      <div class="control-item">
+        <label for="networkLayout">Network Layout</label>
+        <select id="networkLayout">
+          <option value="force">Force Directed</option>
+          <option value="circular">Circular</option>
+          <option value="kamada_kawai">Kamada-Kawai</option>
+          <option value="hierarchical">Hierarchical</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label for="projectionMethod">Projection</label>
+        <select id="projectionMethod">
+          <option value="pca">PCA</option>
+          <option value="umap">UMAP</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label for="similarityThreshold">Similarity Threshold</label>
+        <input type="number" id="similarityThreshold" value="0.65" step="0.05" min="0.1" max="1.0" />
+      </div>
+      <div class="control-item control-checkbox">
+        <label for="showNetworkLabels">Show Labels</label>
+        <input type="checkbox" id="showNetworkLabels" />
+      </div>
+      <div class="control-item control-action">
+        <label>&nbsp;</label>
+        <button id="updateNetworkBtn" class="btn btn-primary">Update Network</button>
+      </div>
+    </section>
+
+    <nav class="tabs-nav" aria-label="Views" role="tablist">
+      <button
+        class="tab-link active"
+        data-tab="profile"
+        role="tab"
+        id="profileTab"
+        aria-controls="profile"
+        aria-selected="true"
+        tabindex="0"
+      >
+        <i class="fas fa-flag"></i>
+        Country Profile
+      </button>
+      <button
+        class="tab-link"
+        data-tab="coalition"
+        role="tab"
+        id="coalitionTab"
+        aria-controls="coalition"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-users"></i>
+        Coalition
+      </button>
+      <button
+        class="tab-link"
+        data-tab="newsletter"
+        role="tab"
+        id="newsletterTab"
+        aria-controls="newsletter"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-newspaper"></i>
+        UN-Scrupulous
+      </button>
+      <button
+        class="tab-link"
+        data-tab="drift"
+        role="tab"
+        id="driftTab"
+        aria-controls="drift"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-bolt"></i>
+        What Changed
+      </button>
+      <button
+        class="tab-link"
+        data-tab="dashboard"
+        role="tab"
+        id="dashboardTab"
+        aria-controls="dashboard"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-chart-line"></i>
+        Dashboard
+      </button>
+      <button
+        class="tab-link"
+        data-tab="network"
+        role="tab"
+        id="networkTab"
+        aria-controls="network"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-project-diagram"></i>
+        Network
+      </button>
+      <button
+        class="tab-link"
+        data-tab="softpower"
+        role="tab"
+        id="softpowerTab"
+        aria-controls="softpower"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-fist-raised"></i>
+        Soft Power
+      </button>
+      <button
+        class="tab-link"
+        data-tab="bloc"
+        role="tab"
+        id="blocTab"
+        aria-controls="bloc"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-stream"></i>
+        Bloc Timeline
+      </button>
+      <button
+        class="tab-link"
+        data-tab="predictions"
+        role="tab"
+        id="predictionsTab"
+        aria-controls="predictions"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-magic"></i>
+        Predictions
+      </button>
+      <button
+        class="tab-link"
+        data-tab="compare"
+        role="tab"
+        id="compareTab"
+        aria-controls="compare"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-balance-scale"></i>
+        Compare
+      </button>
+    </nav>
+
+    <section id="insights-container" class="insights-grid" aria-live="polite"></section>
+    <section class="methods-panel" aria-live="polite">
+      <details id="methodsDetails" open>
+        <summary>Methods & Caveats</summary>
+        <div id="methodsContent" class="methods-content"></div>
+      </details>
+    </section>
+
+    <main class="tab-content">
+      <section id="profile" class="tab-pane active" role="tabpanel" aria-labelledby="profileTab">
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Country Profile</h3>
+            <span class="viz-note">Allies, opponents, and P5 alignment in the selected window</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item">
+              <label for="profileCountry">Country (ISO-3)</label>
+              <input
+                type="text"
+                id="profileCountry"
+                maxlength="3"
+                pattern="[A-Za-z]{3}"
+                placeholder="USA"
+                value="USA"
+              />
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="profileLoadBtn" class="btn btn-primary">Load profile</button>
+            </div>
+            <div class="control-item profile-suggest">
+              <label>&nbsp;</label>
+              <div class="profile-suggest-row">
+                <button class="btn btn-outline btn-chip" data-profile-suggest="USA">USA</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="CHN">CHN</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="RUS">RUS</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="GBR">GBR</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="FRA">FRA</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="ISR">ISR</button>
+                <button class="btn btn-outline btn-chip" data-profile-suggest="IRN">IRN</button>
+              </div>
+            </div>
+          </div>
+          <div id="profileHeadline" class="profile-headline"></div>
+          <div id="profileBlocStrip" class="bloc-strip" aria-live="polite"></div>
+        </article>
+
+        <div class="viz-grid">
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Top Allies</h3>
+              <span class="viz-note">Highest cosine alignment in this window</span>
+            </header>
+            <div id="profileAllies" class="viz-body"></div>
+          </article>
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Top Opponents</h3>
+              <span class="viz-note">Lowest (often negative) alignment</span>
+            </header>
+            <div id="profileOpponents" class="viz-body"></div>
+          </article>
+        </div>
+
+        <article class="viz-card viz-span-full">
+          <header class="viz-header">
+            <h3>Alignment with the P5 Over Time</h3>
+            <span class="viz-note">Per-year share of agreed votes — Yes/Yes, No/No, or Abstain/Abstain</span>
+          </header>
+          <div id="profileP5" class="plot-host tall"></div>
+        </article>
+
+        <article class="viz-card viz-span-full">
+          <header class="viz-header">
+            <h3>This Country's Biggest Shifts</h3>
+            <span class="viz-note">Top alignment moves in the most recent year vs the rest of the window</span>
+          </header>
+          <div id="profileDrift" class="drift-feed"></div>
+        </article>
+
+        <article class="viz-card viz-span-full">
+          <header class="viz-header">
+            <h3>Biggest Splits with Top Ally</h3>
+            <span class="viz-note">Resolutions where they voted opposite</span>
+          </header>
+          <div id="profileSplits" class="viz-body"></div>
+        </article>
+      </section>
+
+      <section id="newsletter" class="tab-pane" role="tabpanel" aria-labelledby="newsletterTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>UN-Scrupulous — Newsletter Composer</h3>
+            <span class="viz-note">Deterministic, reproducible, LLM-free. Ready to paste into Substack, an email, or Slack.</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item">
+              <label for="newsletterYear">Recent year</label>
+              <input type="number" id="newsletterYear" min="1946" max="2025" value="2024" />
+            </div>
+            <div class="control-item">
+              <label for="newsletterBaseline">Baseline window (yrs)</label>
+              <input type="number" id="newsletterBaseline" min="1" max="20" value="3" />
+            </div>
+            <div class="control-item">
+              <label for="newsletterCountry">Country focus (optional)</label>
+              <input type="text" id="newsletterCountry" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g. ARG" />
+            </div>
+            <div class="control-item coalition-topic-input">
+              <label for="newsletterTopics">Watched topics (csv)</label>
+              <input type="text" id="newsletterTopics" placeholder="nuclear, palestine, climate, human rights, sanctions" />
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="newsletterComposeBtn" class="btn btn-primary">Compose</button>
+            </div>
+          </div>
+          <div class="newsletter-actions">
+            <button id="newsletterCopyMd" class="btn btn-outline">Copy Markdown</button>
+            <button id="newsletterCopyText" class="btn btn-outline">Copy plain text</button>
+            <button id="newsletterCopySubject" class="btn btn-outline">Copy subject line</button>
+            <a id="newsletterDownloadMd" class="btn btn-outline" download="weekly-atlas.md">Download .md</a>
+            <a id="newsletterDownloadHtml" class="btn btn-outline" download="weekly-atlas.html">Download .html</a>
+            <a id="newsletterDownloadText" class="btn btn-outline" download="weekly-atlas.txt">Download .txt</a>
+            <a id="newsletterOpenHtml" class="btn btn-outline" target="_blank" rel="noopener">Open HTML preview ↗</a>
+            <button id="newsletterArchiveBtn" class="btn btn-primary">Archive this edition</button>
+          </div>
+          <div id="newsletterMastheadInfo" class="newsletter-masthead-info text-muted"></div>
+          <div id="newsletterSubjectInfo" class="newsletter-masthead-info text-muted"></div>
+        </article>
+
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Archive</h3>
+            <span class="viz-note">Past editions written to <code>data/editions/</code>. Hit "Archive this edition" to persist the current preview.</span>
+          </header>
+          <div id="newsletterArchiveList" class="viz-body"></div>
+        </article>
+
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Live Preview</h3>
+            <span class="viz-note">Same HTML you'd email out, rendered inline.</span>
+          </header>
+          <iframe id="newsletterFrame" class="newsletter-frame" title="UN-Scrupulous preview"></iframe>
+        </article>
+      </section>
+
+      <section id="coalition" class="tab-pane" role="tabpanel" aria-labelledby="coalitionTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Coalition Builder</h3>
+            <span class="viz-note">If a fresh resolution about [topic] were tabled today — who lobbies whom?</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item coalition-topic-input">
+              <label for="coalitionTopic">Topic (free text)</label>
+              <input
+                type="search"
+                id="coalitionTopic"
+                placeholder="e.g. nuclear, climate, palestine, sanctions"
+                value="nuclear"
+              />
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="coalitionRunBtn" class="btn btn-primary">Run</button>
+            </div>
+            <div class="control-item coalition-suggest">
+              <label>&nbsp;</label>
+              <div class="profile-suggest-row">
+                <button class="btn btn-outline btn-chip" data-coalition-topic="nuclear">nuclear</button>
+                <button class="btn btn-outline btn-chip" data-coalition-topic="palestine">palestine</button>
+                <button class="btn btn-outline btn-chip" data-coalition-topic="climate">climate</button>
+                <button class="btn btn-outline btn-chip" data-coalition-topic="sanctions">sanctions</button>
+                <button class="btn btn-outline btn-chip" data-coalition-topic="human rights">human rights</button>
+              </div>
+            </div>
+          </div>
+          <div id="coalitionHeadline" class="profile-headline"></div>
+          <div id="coalitionTally" class="coalition-tally"></div>
+        </article>
+
+        <div id="coalitionTiers" class="coalition-tiers"></div>
+
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Sample matched resolutions</h3>
+            <span class="viz-note">Spot-check the topic query — these are some of the votes counted.</span>
+          </header>
+          <div id="coalitionSamples" class="viz-body"></div>
+        </article>
+      </section>
+
+      <section id="drift" class="tab-pane" role="tabpanel" aria-labelledby="driftTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>What Changed at the UN</h3>
+            <span class="viz-note">Top alignment shifts between countries, with named topics driving each move</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item">
+              <label for="driftRecentYear">Recent year</label>
+              <input type="number" id="driftRecentYear" min="1946" max="2025" value="2023" />
+            </div>
+            <div class="control-item">
+              <label for="driftBaselineWindow">Baseline window (yrs)</label>
+              <input type="number" id="driftBaselineWindow" min="1" max="20" value="5" />
+            </div>
+            <div class="control-item">
+              <label for="driftDirection">Direction</label>
+              <select id="driftDirection">
+                <option value="all">Both (convergences &amp; divergences)</option>
+                <option value="down">Divergences only (broke apart)</option>
+                <option value="up">Convergences only (came together)</option>
+              </select>
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="driftLoadBtn" class="btn btn-primary">Refresh</button>
+            </div>
+          </div>
+          <div id="driftWindow" class="text-muted drift-window"></div>
+        </article>
+
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Digest</h3>
+            <span class="viz-note">3-paragraph narrative summary — copy-paste-ready</span>
+          </header>
+          <div id="driftDigest" class="drift-digest-host"></div>
+        </article>
+
+        <div id="driftFeed" class="drift-feed"></div>
+      </section>
+
+      <section id="dashboard" class="tab-pane" role="tabpanel" aria-labelledby="dashboardTab" hidden>
+        <div class="stats-grid">
+          <article class="stat-card">
+            <p class="stat-label">Total Votes</p>
+            <p class="stat-value" id="totalVotes">-</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">Countries</p>
+            <p class="stat-value" id="totalCountries">-</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">Resolutions</p>
+            <p class="stat-value" id="totalResolutions">-</p>
+          </article>
+          <article class="stat-card">
+            <p class="stat-label">Year Range</p>
+            <p class="stat-value" id="yearRange">-</p>
+          </article>
+        </div>
+
+        <div class="viz-grid">
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Voting Blocs</h3>
+              <span class="viz-note">Hierarchical clustering</span>
+            </header>
+            <div id="clusterResults" class="viz-body"></div>
+          </article>
+
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>PCA Projection</h3>
+              <span class="viz-note">2D variance projection</span>
+            </header>
+            <div id="pcaPlot" class="plot-host"></div>
+          </article>
+
+          <article class="viz-card viz-span-full">
+            <header class="viz-header">
+              <h3>Issue Timeline</h3>
+              <span class="viz-note">Top recurring agenda topics</span>
+            </header>
+            <div id="issueTimeline" class="plot-host tall"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="network" class="tab-pane" role="tabpanel" aria-labelledby="networkTab" hidden>
+        <article class="viz-card network-card">
+          <header class="viz-header">
+            <h3>Voting Similarity Network</h3>
+            <span class="viz-note">Edges indicate high voting alignment</span>
+          </header>
+          <div id="networkGraph" class="plot-host network-host"></div>
+        </article>
+      </section>
+
+      <section id="softpower" class="tab-pane" role="tabpanel" aria-labelledby="softpowerTab" hidden>
+        <div class="viz-grid">
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Soft Power Rankings</h3>
+              <span class="viz-note">Composite centrality score</span>
+            </header>
+            <div id="softPowerTable" class="viz-body scroll"></div>
+          </article>
+
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Soft Power Trends</h3>
+              <span class="viz-note">Historical movement</span>
+            </header>
+            <div id="softPowerTrends" class="plot-host tall"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="bloc" class="tab-pane" role="tabpanel" aria-labelledby="blocTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Bloc Membership Timeline</h3>
+            <span class="viz-note">5-year alluvial flow across bloc assignments</span>
+          </header>
+          <div id="blocTimelinePlot" class="plot-host tall"></div>
+        </article>
+      </section>
+
+      <section id="predictions" class="tab-pane" role="tabpanel" aria-labelledby="predictionsTab" hidden>
+        <div class="viz-grid">
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Train Predictor</h3>
+              <span class="viz-note">Forward split by year</span>
+            </header>
+            <div class="form-stack">
+              <div class="control-item">
+                <label for="trainEndYear">Train Until</label>
+                <input type="number" id="trainEndYear" value="2015" min="1946" max="2025" />
+              </div>
+              <div class="control-item">
+                <label for="testStartYear">Test From</label>
+                <input type="number" id="testStartYear" value="2016" min="1946" max="2025" />
+              </div>
+              <button id="trainModelBtn" class="btn btn-primary">Train Model</button>
+            </div>
+            <div id="trainResults" class="result-panel"></div>
+            <div id="calibrationResults" class="plot-host diagnostics-host"></div>
+          </article>
+
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Predict Vote</h3>
+              <span class="viz-note">Issue-level forecast</span>
+            </header>
+            <div class="form-stack">
+              <div class="control-item">
+                <label for="predictionIssueSearch">Search Issue</label>
+                <input
+                  type="search"
+                  id="predictionIssueSearch"
+                  placeholder="Type to filter issues (e.g., nuclear, palestine)"
+                />
+              </div>
+              <div class="control-item">
+                <label for="predictionIssue">Issue</label>
+                <select id="predictionIssue"></select>
+              </div>
+              <div id="issueSearchMeta" class="text-muted" aria-live="polite"></div>
+              <div id="issueIndex" class="issue-index"></div>
+              <button id="predictBtn" class="btn btn-primary" disabled title="Train a model first">
+                Predict
+              </button>
+            </div>
+            <div id="predictionResults" class="result-panel"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="compare" class="tab-pane" role="tabpanel" aria-labelledby="compareTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Country Divergence</h3>
+            <span class="viz-note">Pairwise contrast by period</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item">
+              <label for="countryA">Country A</label>
+              <input type="text" id="countryA" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g., USA" />
+            </div>
+            <div class="control-item">
+              <label for="countryB">Country B</label>
+              <input type="text" id="countryB" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g., RUS" />
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="compareBtn" class="btn btn-primary">Compare</button>
+            </div>
+          </div>
+          <div id="compareResults" class="result-panel"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js" defer></script>
+</body>
+
+</html>

@@ -1,0 +1,20 @@
+{
+  "_doc": "Annotated UN-voting-relevant events. Each entry pins a year (or year range) to a label that appears on time-series charts. Keep this list short and uncontroversial — these annotations should help readers connect a drop in alignment to a known event, not editorialize. Update by hand, or via the GitHub Action in .github/workflows/validate-events.yml.",
+  "events": [
+    {"year": 1979, "label": "Soviet invasion of Afghanistan", "category": "conflict"},
+    {"year": 1989, "label": "Fall of the Berlin Wall", "category": "geopolitical"},
+    {"year": 1991, "label": "Dissolution of the Soviet Union", "category": "geopolitical"},
+    {"year": 1994, "label": "Rwandan genocide", "category": "conflict"},
+    {"year": 2001, "label": "9/11 attacks; war in Afghanistan begins", "category": "conflict"},
+    {"year": 2003, "label": "Iraq War begins", "category": "conflict"},
+    {"year": 2008, "label": "Global financial crisis", "category": "economic"},
+    {"year": 2011, "label": "Arab Spring; Libya intervention", "category": "conflict"},
+    {"year": 2014, "label": "Russia annexes Crimea", "category": "conflict"},
+    {"year": 2015, "label": "Paris Climate Agreement adopted", "category": "agreement"},
+    {"year": 2017, "label": "US withdraws from Paris Agreement (announced)", "category": "agreement"},
+    {"year": 2018, "label": "US withdraws from JCPOA (Iran deal)", "category": "agreement"},
+    {"year": 2020, "label": "COVID-19 pandemic", "category": "health"},
+    {"year": 2022, "label": "Russia invades Ukraine", "category": "conflict"},
+    {"year": 2023, "label": "Israel–Hamas war begins (Oct)", "category": "conflict"}
+  ]
+}
