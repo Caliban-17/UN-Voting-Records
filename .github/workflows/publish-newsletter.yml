@@ -72,7 +72,12 @@ jobs:
           if [ -n "$LATEST_TAG" ]; then
             echo "Using latest data release: $LATEST_TAG"
             gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
-            mv data/*.csv data/2025_03_31_ga_voting_corr1.csv
+            # No-op if the downloaded asset is already named correctly.
+            for f in data/*.csv; do
+              if [ "$f" != "data/2025_03_31_ga_voting_corr1.csv" ]; then
+                mv "$f" data/2025_03_31_ga_voting_corr1.csv
+              fi
+            done
           elif [ -n "$ATLAS_DATA_URL" ]; then
             echo "No data release yet; falling back to ATLAS_DATA_URL."
             curl -fSL "$ATLAS_DATA_URL" -o data/2025_03_31_ga_voting_corr1.csv
