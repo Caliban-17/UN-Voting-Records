@@ -158,17 +158,18 @@ jobs:
           PY
 
       - name: Skip-if-unchanged gate
-        # Reads the previously archived editions and compares content_hash.
-        # If the edition we just composed is identical in content to the
-        # last published one, we set GH output 'skip=true' and exit early
-        # — guarantees we never ship the same edition two weeks in a row.
+        # "Publish only when data moves." Compares the freshly composed
+        # edition's content_hash against the COMMITTED ledger
+        # (data/published_ledger.json) — which, unlike the gitignored
+        # data/editions/ archive, survives between CI runs. If the data
+        # hasn't moved since the last edition we actually sent, skip.
         id: gate
         if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
         run: |
           python - <<'PY'
           import json, os, sys
           sys.path.insert(0, ".")
-          from src.newsletter_archive import list_editions
+          from src.newsletter_ledger import last_published
 
           this = json.load(open(".github/atlas-out/edition.json"))
           # The composer wrote {slug, subject, paths...} but not the hash.
@@ -176,22 +177,22 @@ jobs:
           with open(this["json_path"]) as f:
               edition_obj = json.load(f)
           this_hash = edition_obj.get("content_hash")
+          country_focus = edition_obj.get("country_focus") or None
 
-          archived = list_editions()
-          # Find the most recent OTHER edition that matches our (recent_year, country_focus).
-          prior = next(
-              (e for e in archived
-               if e["slug"] != this["slug"]
-               and e.get("country_focus") == this.get("country_focus")
-               and e.get("content_hash")),
-              None,
-          )
-          if prior and prior["content_hash"] == this_hash:
-              print(f"::warning::Content unchanged since {prior['slug']} ({prior['edition_date']}). Skipping publish.")
+          prior = last_published(country_focus)
+          if prior and prior.get("content_hash") == this_hash:
+              print(
+                  f"::warning::Data unchanged since {prior['slug']} "
+                  f"({prior.get('edition_date')}). Nothing to publish this week."
+              )
               with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                   f.write("skip=true\n")
               sys.exit(0)
-          print(f"Content fresh — hash {this_hash[:12]}… differs from previous. OK to publish.")
+          prev = prior["content_hash"][:12] + "…" if prior else "none"
+          print(
+              f"Data moved — hash {this_hash[:12]}… (last published {prev}). "
+              f"OK to publish."
+          )
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write("skip=false\n")
           PY
@@ -274,6 +275,36 @@ jobs:
               s.send_message(msg)
           print(f"Sent '{edition.email_subject}' to {to_addr}")
           PY
+
+      # Only runs when we ACTUALLY sent (not dry-run, not skipped). Records
+      # the edition's hash to the committed ledger and pushes it back, so
+      # next week's gate remembers this was published and won't re-send the
+      # same edition. This is the persistence that makes the skip gate work.
+      - name: Record published edition + commit ledger
+        if: ${{ inputs.dry_run != 'true' && steps.gate.outputs.skip != 'true' && hashFiles('.github/atlas-out/edition.json') != '' }}
+        run: |
+          python - <<'PY'
+          import json, sys
+          sys.path.insert(0, ".")
+          from src.newsletter_ledger import record_published_dict
+          this = json.load(open(".github/atlas-out/edition.json"))
+          with open(this["json_path"]) as f:
+              edition_obj = json.load(f)
+          rec = record_published_dict(edition_obj)
+          print(f"Ledger record: {rec['slug']} hash={rec['content_hash'][:12]}…")
+          PY
+          if git diff --quiet -- data/published_ledger.json; then
+            echo "Ledger unchanged (edition already recorded) — nothing to commit."
+            exit 0
+          fi
+          SLUG=$(python -c "import json;print(json.load(open('.github/atlas-out/edition.json'))['slug'])")
+          git -c user.name="atlas-bot" \
+              -c user.email="atlas-bot@users.noreply.github.com" \
+              add data/published_ledger.json
+          git -c user.name="atlas-bot" \
+              -c user.email="atlas-bot@users.noreply.github.com" \
+              commit -m "chore(ledger): record published edition ${SLUG}"
+          git push
 
       - name: Upload edition as workflow artifact
         if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
