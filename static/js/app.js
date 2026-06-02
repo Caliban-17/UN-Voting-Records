@@ -28,6 +28,22 @@ const state = {
   methodsMeta: null,
 };
 
+// Colorblind-safe palette (Okabe-Ito), single source of truth for Plotly
+// traces. Matches the CSS --ok / --bad and the newsletter SVG colors. Blue vs
+// vermillion replaces the old green/red, which was unreadable for red-green
+// colour deficiency.
+const PALETTE = {
+  yes: "#0072b2", // aligned / convergence (blue)
+  no: "#d55e00", // opposed / divergence (vermillion)
+  abstain: "#999999", // grey
+  // Diverging scale for the alignment map: opposed (vermillion) → neutral → aligned (blue)
+  diverging: [
+    [0, "#d55e00"],
+    [0.5, "#f2f2f2"],
+    [1, "#0072b2"],
+  ],
+};
+
 let softPowerToken = 0;
 let softPowerAbortController = null;
 let trainAbortController = null;
@@ -1061,8 +1077,8 @@ async function predictVote() {
           type: "bar",
           marker: {
             color: labels.map((label) => {
-              if (label === "Yes") return "#2a9d57";
-              if (label === "No") return "#c64141";
+              if (label === "Yes") return PALETTE.yes;
+              if (label === "No") return PALETTE.no;
               return "#1f8ea5";
             }),
           },
@@ -2017,6 +2033,205 @@ async function runAnalysis() {
   }
 }
 
+// ── Alignment map · Pivotality · Abstention (new analytical views) ──────────
+
+async function loadAlignmentMap() {
+  const host = document.getElementById("alignmentMap");
+  if (!host) return;
+  const code = normalizeCodeInput(document.getElementById("mapCountry")?.value) || "USA";
+  setLoading(host, `Mapping voting alignment with ${code}…`);
+  try {
+    requirePlotly();
+    const params = new URLSearchParams({
+      start_year: String(state.startYear),
+      end_year: String(state.endYear),
+    });
+    const res = await axios.get(`/api/country/${code}/alignment-map?${params.toString()}`);
+    const points = res.data?.points || [];
+    if (!points.length) {
+      showErrorElement(host, "No alignment data for this country / window.");
+      return;
+    }
+    maybeUpdateMeta(res.data);
+    const trace = {
+      type: "choropleth",
+      locationmode: "ISO-3",
+      locations: points.map((p) => p.code),
+      z: points.map((p) => p.alignment),
+      text: points.map((p) => p.name),
+      zmin: -1,
+      zmax: 1,
+      zmid: 0,
+      colorscale: PALETTE.diverging,
+      colorbar: { title: "Alignment", tickformat: ".1f", thickness: 14 },
+      hovertemplate: "%{text}<br>alignment %{z:.2f}<extra></extra>",
+      marker: { line: { color: "#ffffff", width: 0.4 } },
+    };
+    clearNode(host);
+    Plotly.newPlot(
+      host,
+      [trace],
+      {
+        autosize: true,
+        title: {
+          text: `Voting alignment with ${res.data.country_name || code} · ${res.data.start_year}–${res.data.end_year}`,
+          font: { size: 15 },
+        },
+        geo: {
+          showframe: false,
+          showcoastlines: true,
+          coastlinecolor: "#cfd8df",
+          projection: { type: "natural earth" },
+          bgcolor: "rgba(0,0,0,0)",
+        },
+        margin: { l: 6, r: 6, t: 46, b: 6 },
+        paper_bgcolor: "rgba(0,0,0,0)",
+      },
+      { responsive: true, displayModeBar: false },
+    );
+  } catch (error) {
+    showErrorElement(host, getErrorMessage(error));
+  }
+}
+
+async function loadPivotality() {
+  const host = document.getElementById("pivotalityChart");
+  const summary = document.getElementById("pivotalitySummary");
+  if (!host) return;
+  setLoading(host, "Finding swing votes on the closest resolutions…");
+  if (summary) clearNode(summary);
+  try {
+    requirePlotly();
+    const res = await axios.post("/api/analysis/pivotality", {
+      start_year: state.startYear,
+      end_year: state.endYear,
+      // UNGA has very few sub-15% votes, so widen the "contested" band to
+      // surface real variation in who's decisive on the close ones.
+      margin_threshold: 0.25,
+    });
+    maybeUpdateMeta(res.data);
+    const scores = res.data?.pivotality_scores || {};
+    const rows = Object.entries(scores)
+      .map(([code, v]) => ({ code, value: toFiniteNumber(v.pivotality_index ?? v.swing_votes, 0) }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 20)
+      .reverse();
+    if (summary) {
+      summary.textContent =
+        `${res.data.contested_count} tightly contested resolutions out of ` +
+        `${res.data.total_resolutions} in ${state.startYear}–${state.endYear}. ` +
+        `Bars show how often each country landed on the winning side of a close vote.`;
+    }
+    if (!rows.length) {
+      showErrorElement(host, "No contested resolutions in this window.");
+      return;
+    }
+    clearNode(host);
+    Plotly.newPlot(
+      host,
+      [
+        {
+          type: "bar",
+          orientation: "h",
+          x: rows.map((r) => r.value),
+          y: rows.map((r) => r.code),
+          marker: { color: PALETTE.yes },
+          hovertemplate: "%{y}: %{x} swing votes<extra></extra>",
+        },
+      ],
+      {
+        autosize: true,
+        xaxis: { title: "Swing votes on close resolutions" },
+        yaxis: { automargin: true },
+        margin: { l: 70, r: 20, t: 16, b: 42 },
+      },
+      { responsive: true, displayModeBar: false },
+    );
+  } catch (error) {
+    showErrorElement(host, getErrorMessage(error));
+  }
+}
+
+async function loadAbstention() {
+  const countriesHost = document.getElementById("abstentionCountries");
+  const topicsHost = document.getElementById("abstentionTopics");
+  if (!countriesHost) return;
+  setLoading(countriesHost, "Measuring fence-sitting…");
+  if (topicsHost) clearNode(topicsHost);
+  try {
+    requirePlotly();
+    const res = await axios.post("/api/analysis/abstention", {
+      start_year: state.startYear,
+      end_year: state.endYear,
+    });
+    maybeUpdateMeta(res.data);
+
+    const rates = res.data?.global_rates || {};
+    const countryRows = Object.entries(rates)
+      .map(([code, v]) => ({ code, rate: toFiniteNumber(v.abstention_rate, 0) }))
+      .sort((a, b) => b.rate - a.rate)
+      .slice(0, 20)
+      .reverse();
+    clearNode(countriesHost);
+    if (countryRows.length) {
+      Plotly.newPlot(
+        countriesHost,
+        [
+          {
+            type: "bar",
+            orientation: "h",
+            x: countryRows.map((r) => r.rate * 100),
+            y: countryRows.map((r) => r.code),
+            marker: { color: PALETTE.abstain },
+            hovertemplate: "%{y}: %{x:.0f}% abstained<extra></extra>",
+          },
+        ],
+        {
+          autosize: true,
+          xaxis: { title: "Abstention rate (%)" },
+          yaxis: { automargin: true },
+          margin: { l: 70, r: 20, t: 16, b: 42 },
+        },
+        { responsive: true, displayModeBar: false },
+      );
+    } else {
+      showErrorElement(countriesHost, "No abstention data in this window.");
+    }
+
+    const topics = res.data?.top_strategic_topics || {};
+    const topicRows = Object.entries(topics)
+      .map(([topic, v]) => ({ topic, rate: toFiniteNumber(v.abstention_rate, 0) }))
+      .sort((a, b) => b.rate - a.rate)
+      .slice(0, 12)
+      .reverse();
+    if (topicsHost && topicRows.length) {
+      clearNode(topicsHost);
+      Plotly.newPlot(
+        topicsHost,
+        [
+          {
+            type: "bar",
+            orientation: "h",
+            x: topicRows.map((r) => r.rate * 100),
+            y: topicRows.map((r) => (r.topic.length > 34 ? r.topic.slice(0, 33) + "…" : r.topic)),
+            marker: { color: "#d38b2a" },
+            hovertemplate: "%{y}: %{x:.0f}% abstained<extra></extra>",
+          },
+        ],
+        {
+          autosize: true,
+          xaxis: { title: "Abstention rate (%)" },
+          yaxis: { automargin: true },
+          margin: { l: 170, r: 20, t: 16, b: 42 },
+        },
+        { responsive: true, displayModeBar: false },
+      );
+    }
+  } catch (error) {
+    showErrorElement(countriesHost, getErrorMessage(error));
+  }
+}
+
 function activateTab(tabId, options = {}) {
   const skipLoad = Boolean(options.skipLoad);
   const tabs = Array.from(document.querySelectorAll(".tab-link"));
@@ -2059,6 +2274,15 @@ function activateTab(tabId, options = {}) {
   }
   if (!skipLoad && tabId === "bloc") {
     loadBlocTimeline();
+  }
+  if (!skipLoad && tabId === "map") {
+    loadAlignmentMap();
+  }
+  if (!skipLoad && tabId === "pivotality") {
+    loadPivotality();
+  }
+  if (!skipLoad && tabId === "abstention") {
+    loadAbstention();
   }
 }
 
@@ -2349,6 +2573,20 @@ function setupEventListeners() {
   }
 }
 
+function setupMapControls() {
+  const btn = document.getElementById("mapLoadBtn");
+  if (btn) btn.addEventListener("click", loadAlignmentMap);
+  const input = document.getElementById("mapCountry");
+  if (input) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        loadAlignmentMap();
+      }
+    });
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   try {
     requireLibraries();
@@ -2370,6 +2608,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     setupEventListeners();
     setupProfileControls();
+    setupMapControls();
     setupDriftControls();
     setupCoalitionControls();
     setupNewsletterControls();

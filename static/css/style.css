@@ -9,11 +9,29 @@
   --paper-200: #ece8e0;
   --card: #ffffff;
   --line: #d7d3c9;
-  --ok: #2a9d57;
-  --warn: #d38b2a;
-  --bad: #c64141;
+  /* Colorblind-safe semantic colors (Okabe-Ito). Were green/red (#2a9d57 /
+     #c64141), the worst pairing for red-green deficiency (~8% of men). Blue vs
+     vermillion is distinguishable for all common types. One source of truth —
+     every drift card, tier, tally bar and bloc tile picks these up. */
+  --ok: #0072b2;   /* aligned / convergence / yes  (blue) */
+  --warn: #d38b2a; /* abstain / caution            (amber) */
+  --bad: #d55e00;  /* opposed / divergence / no    (vermillion) */
   --shadow: 0 12px 28px rgba(11, 34, 56, 0.08);
   --radius: 16px;
+}
+
+/* Respect users who ask for less motion: kill the decorative orb drift and any
+   transitions/animations. (The animated .bg-orb elements otherwise ignore it.) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .bg-orb { animation: none !important; }
 }
 
 * {

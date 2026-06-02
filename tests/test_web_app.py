@@ -185,3 +185,29 @@ def test_report_endpoint_pdf(client):
     assert response.status_code == 200
     assert response.headers.get("Content-Type", "").startswith("application/pdf")
     assert len(response.get_data()) > 1000
+
+
+def test_alignment_map_endpoint(client):
+    """Choropleth data: alignment of every other country with the focus."""
+    response = client.get(
+        "/api/country/USA/alignment-map?start_year=2015&end_year=2020"
+    )
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["country"] == "USA"
+    assert isinstance(data["points"], list) and len(data["points"]) > 0
+    sample = data["points"][0]
+    assert {"code", "name", "alignment"} <= set(sample.keys())
+    assert -1.0001 <= sample["alignment"] <= 1.0001
+    # focus country is excluded from its own map
+    assert all(p["code"] != "USA" for p in data["points"])
+    # sorted most-aligned first
+    aligns = [p["alignment"] for p in data["points"]]
+    assert aligns == sorted(aligns, reverse=True)
+
+
+def test_alignment_map_unknown_country(client):
+    response = client.get(
+        "/api/country/ZZ/alignment-map?start_year=2015&end_year=2020"
+    )
+    assert response.status_code in (400, 404)

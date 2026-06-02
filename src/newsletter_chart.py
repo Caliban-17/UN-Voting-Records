@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import html as _html
 
-# Palette aligned with the Atlas brand (sea-green for up, ember-red for down).
-_COLOR_UP = "#2a9d57"
-_COLOR_DOWN = "#c64141"
+# Colorblind-safe palette (Okabe-Ito). Up/down were green/red (#2a9d57 /
+# #c64141) — the worst pair for red-green deficiency. Blue vs vermillion reads
+# correctly for all common types and matches the web app's --ok / --bad.
+_COLOR_UP = "#0072b2"    # aligned / convergence (blue)
+_COLOR_DOWN = "#d55e00"  # opposed / divergence (vermillion)
 _COLOR_AXIS = "#456783"
 _COLOR_GRID = "#d7d3c9"
 _COLOR_TEXT = "#0b2238"
@@ -339,7 +341,7 @@ def vote_tally_svg(
 
     # Yes (sea-green)
     parts.append(
-        f'<rect x="1" y="{bar_y}" width="{y_w}" height="{bar_h}" fill="#2a9d57"/>'
+        f'<rect x="1" y="{bar_y}" width="{y_w}" height="{bar_h}" fill="#0072b2"/>'
     )
     if y_w > 30:
         parts.append(
@@ -352,7 +354,7 @@ def vote_tally_svg(
     if n_w > 0:
         parts.append(
             f'<rect x="{1 + y_w}" y="{bar_y}" width="{n_w}" height="{bar_h}" '
-            f'fill="#c64141"/>'
+            f'fill="#d55e00"/>'
         )
         if n_w > 30:
             parts.append(

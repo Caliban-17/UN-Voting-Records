@@ -101,7 +101,9 @@ def register_middleware(app: Flask) -> None:
             "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
             "font-src 'self' https://cdnjs.cloudflare.com data:; "
             "img-src 'self' data: blob:; "
-            "connect-src 'self'; "
+            # cdn.plot.ly: Plotly fetches world topojson at render time for the
+            # choropleth/geo charts; without this the map basemap is blank.
+            "connect-src 'self' https://cdn.plot.ly; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "frame-ancestors 'none'"

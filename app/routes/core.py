@@ -366,6 +366,52 @@ def country_profile(code: str):
         return make_server_error("Country profile error", exc)
 
 
+@bp.route("/api/country/<code>/alignment-map", methods=["GET"])
+@cached_api
+def country_alignment_map(code: str):
+    """Alignment of every country with ``code`` over a window — the data behind
+    the world choropleth. ``alignment`` is the cosine similarity of the two
+    countries' vote vectors, in [-1 (opposed) .. +1 (aligned)].
+    """
+    if get_df() is None:
+        return make_error("Data not loaded", 500)
+    try:
+        country = normalize_country_code(code)
+        start_year, end_year = validate_year_range(request.args.to_dict())
+        vote_matrix, _, _ = preprocess_for_similarity(get_df(), start_year, end_year)
+        if vote_matrix is None or vote_matrix.empty:
+            return make_error("Not enough data in this window", 400)
+        sim = calculate_similarity(vote_matrix)
+        if sim is None or country not in sim.index:
+            return make_error(
+                f"No alignment data for {country} in {start_year}–{end_year}", 404
+            )
+        names = country_names()
+        row = sim.loc[country]
+        points = [
+            {"code": c, "name": names.get(c, c), "alignment": round(float(row[c]), 4)}
+            for c in sim.index
+            if c != country
+        ]
+        points.sort(key=lambda p: p["alignment"], reverse=True)
+        return jsonify({
+            "country": country,
+            "country_name": names.get(country, country),
+            "start_year": start_year,
+            "end_year": end_year,
+            "points": points,
+            "meta": get_method_metadata(
+                start_year,
+                end_year,
+                context={"analysis": "alignment_map", "country": country},
+            ),
+        })
+    except ValueError as exc:
+        return make_error(str(exc), 400)
+    except Exception as exc:
+        return make_server_error("Alignment map error", exc)
+
+
 @bp.route("/api/drift", methods=["GET"])
 @cached_api
 def alignment_drift():

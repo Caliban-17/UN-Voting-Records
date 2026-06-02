@@ -119,6 +119,18 @@
       </button>
       <button
         class="tab-link"
+        data-tab="map"
+        role="tab"
+        id="mapTab"
+        aria-controls="map"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-earth-americas"></i>
+        Map
+      </button>
+      <button
+        class="tab-link"
         data-tab="coalition"
         role="tab"
         id="coalitionTab"
@@ -188,6 +200,30 @@
       >
         <i class="fas fa-fist-raised"></i>
         Soft Power
+      </button>
+      <button
+        class="tab-link"
+        data-tab="pivotality"
+        role="tab"
+        id="pivotalityTab"
+        aria-controls="pivotality"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-scale-balanced"></i>
+        Pivotality
+      </button>
+      <button
+        class="tab-link"
+        data-tab="abstention"
+        role="tab"
+        id="abstentionTab"
+        aria-controls="abstention"
+        aria-selected="false"
+        tabindex="-1"
+      >
+        <i class="fas fa-hand"></i>
+        Abstention
       </button>
       <button
         class="tab-link"
@@ -314,6 +350,26 @@
             <span class="viz-note">Resolutions where they voted opposite</span>
           </header>
           <div id="profileSplits" class="viz-body"></div>
+        </article>
+      </section>
+
+      <section id="map" class="tab-pane" role="tabpanel" aria-labelledby="mapTab" hidden>
+        <article class="viz-card viz-span-full">
+          <header class="viz-header">
+            <h3>Alignment Map</h3>
+            <span class="viz-note">Every country shaded by how often it votes with the selected one, over the global year window. Blue = aligned, orange = opposed.</span>
+          </header>
+          <div class="compare-controls">
+            <div class="control-item">
+              <label for="mapCountry">Country (ISO-3)</label>
+              <input type="text" id="mapCountry" maxlength="3" pattern="[A-Za-z]{3}" placeholder="USA" value="USA" />
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="mapLoadBtn" class="btn btn-primary">Render map</button>
+            </div>
+          </div>
+          <div id="alignmentMap" class="plot-host network-host"></div>
         </article>
       </section>
 
@@ -537,6 +593,42 @@
               <span class="viz-note">Historical movement</span>
             </header>
             <div id="softPowerTrends" class="plot-host tall"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="pivotality" class="tab-pane" role="tabpanel" aria-labelledby="pivotalityTab" hidden>
+        <article class="viz-card">
+          <header class="viz-header">
+            <h3>Pivotality — Swing Votes on Close Resolutions</h3>
+            <span class="viz-note">Which countries most often land on the winning side of tightly contested votes. Uses the global year window.</span>
+          </header>
+          <div id="pivotalitySummary" class="text-muted"></div>
+        </article>
+        <article class="viz-card viz-span-full">
+          <header class="viz-header">
+            <h3>Most pivotal countries</h3>
+            <span class="viz-note">More swing votes = more often decisive on a knife-edge resolution</span>
+          </header>
+          <div id="pivotalityChart" class="plot-host tall"></div>
+        </article>
+      </section>
+
+      <section id="abstention" class="tab-pane" role="tabpanel" aria-labelledby="abstentionTab" hidden>
+        <div class="viz-grid">
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Top Abstainers</h3>
+              <span class="viz-note">Countries that sit on the fence most, over the window</span>
+            </header>
+            <div id="abstentionCountries" class="plot-host tall"></div>
+          </article>
+          <article class="viz-card">
+            <header class="viz-header">
+              <h3>Most-abstained Topics</h3>
+              <span class="viz-note">Where abstention is used as a strategic signal</span>
+            </header>
+            <div id="abstentionTopics" class="plot-host tall"></div>
           </article>
         </div>
       </section>
