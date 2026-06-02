@@ -39,11 +39,43 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Decide which editions to compose this run: the global edition ("") plus a
+  # curated set of per-country editions — OR a single country when one is given
+  # via workflow_dispatch. The composer already supports country_focus end to
+  # end (slug, ledger key, email), so this just fans the existing pipeline out.
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      focuses: ${{ steps.set.outputs.focuses }}
+    env:
+      # Global edition is "". Add/remove ISO-3 codes to change which country
+      # editions ship each week. Per-country editions dedup INDEPENDENTLY of the
+      # global one (the ledger keys on country_focus), so most weeks they skip
+      # until that country's own data moves — they won't spam the inbox.
+      COUNTRY_EDITIONS: '["", "ARG", "ISR", "CHN"]'
+    steps:
+      - id: set
+        env:
+          DISPATCH_COUNTRY: ${{ inputs.country }}
+        run: |
+          if [ -n "$DISPATCH_COUNTRY" ]; then
+            # Manual single-country dispatch overrides the curated set.
+            echo "focuses=[\"${DISPATCH_COUNTRY}\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo "focuses=${COUNTRY_EDITIONS}" >> "$GITHUB_OUTPUT"
+          fi
+
   compose-and-publish:
+    needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: write          # so the "Archive to repo" step can commit
+    strategy:
+      fail-fast: false         # one country failing must not abort the others
+      max-parallel: 1          # serialize so per-country ledger commits never race
+      matrix:
+        focus: ${{ fromJson(needs.plan.outputs.focuses) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -108,7 +140,7 @@ jobs:
         env:
           RECENT_YEAR: ${{ inputs.recent_year }}
           BASELINE_WINDOW: ${{ inputs.baseline_window }}
-          COUNTRY_FOCUS: ${{ inputs.country }}
+          COUNTRY_FOCUS: ${{ matrix.focus }}
         run: |
           python - <<'PY'
           import json
@@ -320,9 +352,62 @@ jobs:
           echo "::error::Could not push ledger after 3 attempts; next run may re-send edition ${SLUG}."
           exit 1
 
+      - name: Publish result summary
+        # Always runs so every week's outcome is visible at a glance in the
+        # run summary — published / skipped / dry-run / failed. Closes the
+        # "the gate skips silently and nobody notices" gap. GitHub already
+        # emails the owner on outright workflow failure.
+        if: ${{ always() }}
+        env:
+          GATE_SKIP: ${{ steps.gate.outputs.skip }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          python - <<'PY'
+          import json, os
+
+          skip = os.environ.get("GATE_SKIP")
+          dry = os.environ.get("DRY_RUN") == "true"
+          status = os.environ.get("JOB_STATUS")  # success / failure / cancelled
+
+          slug = subject = focus = None
+          try:
+              with open(".github/atlas-out/edition.json") as f:
+                  meta = json.load(f)
+              slug, subject, focus = meta.get("slug"), meta.get("subject"), meta.get("country_focus")
+          except OSError:
+              pass
+
+          if status == "failure":
+              outcome = "❌ **Failed** — see the step logs above."
+          elif slug is None:
+              outcome = "⚠️ **No edition composed** (no data source configured, or data missing)."
+          elif dry:
+              outcome = f"🧪 **Dry run** — composed `{slug}`, no email sent."
+          elif skip == "true":
+              outcome = "⏭️ **Skipped** — data unchanged since the last published edition; no email sent."
+          elif skip == "false":
+              outcome = f"📤 **Published** `{slug}` — emailed to the Substack inbox and recorded in the ledger."
+          else:
+              outcome = f"ℹ️ Composed `{slug}` (outcome undetermined)."
+
+          lines = ["## Weekly Atlas — publish result", "", outcome, ""]
+          if slug:
+              lines += [
+                  f"- **Edition:** `{slug}`",
+                  f"- **Focus:** {focus or 'global'}",
+                  f"- **Subject:** {subject or '—'}",
+              ]
+          summary = "\n".join(lines) + "\n"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
+              f.write(summary)
+          print(summary)
+          PY
+
       - name: Upload edition as workflow artifact
         if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
-          name: weekly-atlas-edition
+          # Per-matrix-job name so country editions don't collide on upload.
+          name: weekly-atlas-edition-${{ matrix.focus || 'global' }}
           path: data/editions/
