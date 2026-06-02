@@ -79,3 +79,32 @@ def test_build_email_message_has_text_html_and_inline_images():
         for part in msg.walk():
             if part.get_content_type() == "image/png":
                 assert part["Content-ID"] is not None
+
+
+def test_message_id_is_deterministic_per_edition():
+    """The Message-ID is keyed on content_hash, so re-sending the same edition
+    produces the same Message-ID — a delivery-level dedup backstop behind the
+    skip-gate."""
+    df = _df()
+    edition = build_newsletter_edition(df, recent_year=2024, baseline_window_years=3)
+    a = build_email_message(edition, sender="atlas@example.com", recipient="to@example.com")
+    b = build_email_message(edition, sender="atlas@example.com", recipient="to@example.com")
+    assert a["Message-ID"] == b["Message-ID"]
+    assert edition.content_hash in a["Message-ID"]
+    # Well-formed: <local@domain>, domain taken from the sender.
+    assert a["Message-ID"].startswith("<atlas-global-")
+    assert a["Message-ID"].endswith("@example.com>")
+
+
+def test_message_id_differs_across_editions():
+    """Different content (here: a country edition) → different Message-ID, so
+    legitimately distinct editions are never collapsed."""
+    df = _df()
+    global_ed = build_newsletter_edition(df, recent_year=2024, baseline_window_years=3)
+    country_ed = build_newsletter_edition(
+        df, recent_year=2024, baseline_window_years=3, country_focus="ARG"
+    )
+    g = build_email_message(global_ed, sender="atlas@example.com", recipient="to@example.com")
+    c = build_email_message(country_ed, sender="atlas@example.com", recipient="to@example.com")
+    assert g["Message-ID"] != c["Message-ID"]
+    assert "-arg-" in c["Message-ID"].lower()

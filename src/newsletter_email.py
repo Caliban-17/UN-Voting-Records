@@ -126,6 +126,16 @@ def build_email_message(
     msg["Subject"] = subject_override or edition.email_subject
     msg["From"] = sender
     msg["To"] = recipient
+    # Deterministic Message-ID keyed on the edition's content hash: re-sending
+    # the SAME edition yields the SAME Message-ID, so a downstream mail server
+    # or inbox can collapse it. This is a transport-level backstop *behind* the
+    # content-hash skip-gate — if the gate ever fails to fire (or the job dies
+    # between sending and recording the ledger), identical editions still
+    # de-duplicate at delivery instead of landing as a second copy. The
+    # country_focus is included so per-country editions get distinct IDs.
+    domain = sender.rsplit("@", 1)[-1].strip() if "@" in sender else "un-scrupulous.local"
+    focus = (edition.country_focus or "global").lower()
+    msg["Message-ID"] = f"<atlas-{focus}-{edition.content_hash}@{domain or 'un-scrupulous.local'}>"
 
     # Plain-text fallback — first so clients that don't render HTML still
     # see useful content. multipart/alternative is created implicitly.
