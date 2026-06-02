@@ -34,10 +34,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: "pip"
@@ -120,7 +120,7 @@ jobs:
 
       - name: Upload candidate as workflow artifact (backup)
         if: ${{ hashFiles('data/*.archived-*.csv') != '' || hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: refreshed-csv-snapshot
           path: |
