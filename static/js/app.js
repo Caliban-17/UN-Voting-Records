@@ -2105,9 +2105,11 @@ async function loadPivotality() {
     const res = await axios.post("/api/analysis/pivotality", {
       start_year: state.startYear,
       end_year: state.endYear,
-      // UNGA has very few sub-15% votes, so widen the "contested" band to
-      // surface real variation in who's decisive on the close ones.
-      margin_threshold: 0.25,
+      // UNGA votes are rarely knife-edge: at a 15-25% margin only a handful
+      // qualify and every country ties. 0.5 = "winning side under 75%", i.e.
+      // genuinely DIVIDED votes — ~135 of them in 2010-2020 — which gives a
+      // real ranking of who lands on the prevailing side.
+      margin_threshold: 0.5,
     });
     maybeUpdateMeta(res.data);
     const scores = res.data?.pivotality_scores || {};
@@ -2118,9 +2120,9 @@ async function loadPivotality() {
       .reverse();
     if (summary) {
       summary.textContent =
-        `${res.data.contested_count} tightly contested resolutions out of ` +
-        `${res.data.total_resolutions} in ${state.startYear}–${state.endYear}. ` +
-        `Bars show how often each country landed on the winning side of a close vote.`;
+        `${res.data.contested_count} divided resolutions (winning side under 75%) ` +
+        `out of ${res.data.total_resolutions} in ${state.startYear}–${state.endYear}. ` +
+        `Bars show how many of those each country landed on the prevailing side of.`;
     }
     if (!rows.length) {
       showErrorElement(host, "No contested resolutions in this window.");
@@ -2141,7 +2143,7 @@ async function loadPivotality() {
       ],
       {
         autosize: true,
-        xaxis: { title: "Swing votes on close resolutions" },
+        xaxis: { title: "Times on the prevailing side of a divided vote" },
         yaxis: { automargin: true },
         margin: { l: 70, r: 20, t: 16, b: 42 },
       },
