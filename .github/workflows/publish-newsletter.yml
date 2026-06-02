@@ -117,24 +117,39 @@ jobs:
 
           sys.path.insert(0, ".")
           from src.config import UN_VOTES_CSV_PATH
+          from src.country_display import display_lookup
           from src.data_processing import load_and_preprocess_data
           from src.newsletter import build_newsletter_edition
           from src.newsletter_archive import save_edition
 
           df, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH))
-          recent_year = int(os.getenv("RECENT_YEAR") or df["year"].max())
+          # Select recent_year EXACTLY as the Send step does: when no explicit
+          # RECENT_YEAR override is given, pass None so build_newsletter_edition
+          # auto-picks via pick_recent_year — which skips a sparse in-progress
+          # year (e.g. a barely-started 2026 with a handful of resolutions).
+          # Using df["year"].max() here while Send used the auto-pick made the
+          # gate/ledger track a DIFFERENT edition than the one actually emailed,
+          # so the gate kept firing on the churning latest-year edition while
+          # the stable emailed edition went out unchanged every week — the
+          # duplicate-email bug. Keep this in lockstep with the Send step.
+          recent_year_env = (os.getenv("RECENT_YEAR") or "").strip()
+          recent_year = int(recent_year_env) if recent_year_env else None
           baseline_window = int(os.getenv("BASELINE_WINDOW") or 3)
           country_focus = (os.getenv("COUNTRY_FOCUS") or "").strip().upper() or None
 
-          name_lookup = {}
+          # Use editorial display names (display_lookup) so the ARCHIVED
+          # edition — which the Send step now emails verbatim — reads "Iran",
+          # "North Korea", etc. rather than raw UN long-forms or bare codes.
+          raw_names = {}
           if "country_name" in df.columns:
               names = df[["country_identifier", "country_name"]].dropna().drop_duplicates(
                   subset=["country_identifier"]
               )
-              name_lookup = {
+              raw_names = {
                   str(r.country_identifier).strip().upper(): str(r.country_name)
                   for r in names.itertuples(index=False)
               }
+          name_lookup = display_lookup(raw_names)
           edition = build_newsletter_edition(
               df, recent_year=recent_year,
               baseline_window_years=baseline_window,
@@ -207,11 +222,9 @@ jobs:
           SUBSTACK_INBOX: ${{ secrets.ATLAS_SUBSTACK_INBOX }}
           SMTP_FROM: ${{ secrets.ATLAS_SMTP_FROM }}
           RECIPIENT_OVERRIDE: ${{ inputs.recipient_override }}
-          ATLAS_RECENT_YEAR: ${{ inputs.recent_year }}
-          ATLAS_BASELINE_WINDOW: ${{ inputs.baseline_window }}
-          ATLAS_COUNTRY: ${{ inputs.country }}
         run: |
           python - <<'PY'
+          import json
           import os
           import smtplib
           import sys
@@ -228,32 +241,20 @@ jobs:
           if not to_addr:
               raise SystemExit("No recipient: set ATLAS_SUBSTACK_INBOX or pass recipient_override.")
 
-          from src.config import UN_VOTES_CSV_PATH
-          from src.country_display import display_lookup
-          from src.data_processing import load_and_preprocess_data
-          from src.newsletter import build_newsletter_edition
+          from src.newsletter import edition_from_dict
           from src.newsletter_email import build_email_message
 
-          df, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH), use_cache=False)
-          names_df = df[["country_identifier", "country_name"]].dropna().drop_duplicates(subset=["country_identifier"])
-          raw = {
-              str(r.country_identifier).strip().upper(): str(r.country_name)
-              for r in names_df.itertuples(index=False)
-          }
-          name_lookup = display_lookup(raw)
+          # Reuse the EXACT edition Compose archived and the gate checked — do
+          # NOT recompose. Recomposing here (with a separately-chosen
+          # recent_year / name_lookup) is what let the emailed edition drift
+          # away from the gated + recorded one, silently re-sending the same
+          # edition every week. Loading the artifact guarantees the email, the
+          # skip-gate, and the ledger all describe one identical edition — and
+          # skips a second 362MB CSV parse.
+          this = json.load(open(".github/atlas-out/edition.json"))
+          with open(this["json_path"]) as f:
+              edition = edition_from_dict(json.load(f))
 
-          # If ATLAS_RECENT_YEAR is set, use it; otherwise let the composer
-          # auto-pick (which skips sparse in-progress years — see pick_recent_year).
-          recent_year_env = os.environ.get("ATLAS_RECENT_YEAR", "").strip()
-          recent_year = int(recent_year_env) if recent_year_env else None
-          baseline_window = int(os.environ.get("ATLAS_BASELINE_WINDOW") or 3)
-          country_focus = (os.environ.get("ATLAS_COUNTRY") or "").strip().upper() or None
-
-          edition = build_newsletter_edition(
-              df, recent_year=recent_year,
-              baseline_window_years=baseline_window,
-              name_lookup=name_lookup, country_focus=country_focus,
-          )
           # Subject is action-oriented for the editor's inbox: "Ready to
           # publish" rather than the headline. The headline lives inside
           # the email body and inside the attached Markdown file (which
@@ -298,13 +299,26 @@ jobs:
             exit 0
           fi
           SLUG=$(python -c "import json;print(json.load(open('.github/atlas-out/edition.json'))['slug'])")
-          git -c user.name="atlas-bot" \
-              -c user.email="atlas-bot@users.noreply.github.com" \
-              add data/published_ledger.json
-          git -c user.name="atlas-bot" \
-              -c user.email="atlas-bot@users.noreply.github.com" \
-              commit -m "chore(ledger): record published edition ${SLUG}"
-          git push
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          git add data/published_ledger.json
+          git commit -m "chore(ledger): record published edition ${SLUG}"
+          # The edition has ALREADY been emailed by this point, so the ledger
+          # MUST land — if the push is lost, next week's gate forgets this send
+          # and re-mails the same edition (the bug this whole gate exists to
+          # prevent). The concurrency group makes a racing push rare, not
+          # impossible, so rebase onto any concurrent change and retry before
+          # failing loudly.
+          for attempt in 1 2 3; do
+            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+              echo "Ledger pushed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed (concurrent update?) — retrying in 5s."
+            sleep 5
+          done
+          echo "::error::Could not push ledger after 3 attempts; next run may re-send edition ${SLUG}."
+          exit 1
 
       - name: Upload edition as workflow artifact
         if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}

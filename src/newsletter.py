@@ -1045,3 +1045,75 @@ def edition_to_dict(edition: NewsletterEdition) -> dict:
     from dataclasses import asdict
 
     return asdict(edition)
+
+
+def edition_from_dict(payload: dict) -> NewsletterEdition:
+    """Rebuild a :class:`NewsletterEdition` from its archived JSON.
+
+    The inverse of :func:`edition_to_dict`. This is what lets the publish
+    pipeline **compose once and reuse**: the workflow's Send step loads the
+    exact edition the Compose step archived (and the skip-gate checked, and
+    the ledger recorded) rather than recomposing from the CSV. Recomposing
+    was how the emailed edition drifted away from the gated/recorded one —
+    the duplicate-email bug — so the email path must consume the archived
+    artifact verbatim, never rebuild it.
+
+    Unknown keys are ignored, so the convenience ``markdown`` field that
+    :func:`newsletter_archive.save_edition` injects (and any future additive
+    fields) round-trip cleanly. The stored ``content_hash`` is preserved
+    as-is — never recomputed — so a reloaded edition is byte-identical to the
+    one that was gated.
+    """
+    import dataclasses as _dc
+
+    def _only(cls, d: Optional[dict]):
+        """Construct dataclass ``cls`` from ``d``, dropping unknown keys."""
+        names = {f.name for f in _dc.fields(cls)}
+        return cls(**{k: v for k, v in (d or {}).items() if k in names})
+
+    def _list(cls, items) -> list:
+        return [_only(cls, it) for it in (items or [])]
+
+    # Coalition snapshots carry a nested list of CoalitionMove — rebuild those
+    # first, then the snapshot around them.
+    coalition_watch = [
+        _only(CoalitionSnapshot, {**snap, "movers": _list(CoalitionMove, snap.get("movers"))})
+        for snap in (payload.get("coalition_watch") or [])
+    ]
+
+    spotlight = payload.get("resolution_spotlight")
+
+    return NewsletterEdition(
+        publication=payload["publication"],
+        edition_number=int(payload["edition_number"]),
+        edition_date=payload["edition_date"],
+        edition_slug=payload["edition_slug"],
+        email_subject=payload["email_subject"],
+        content_hash=payload["content_hash"],
+        country_focus=payload.get("country_focus"),
+        dateline=payload["dateline"],
+        byline=payload["byline"],
+        period_label=payload["period_label"],
+        recent_year=int(payload["recent_year"]),
+        baseline_window=payload["baseline_window"],
+        headline=payload["headline"],
+        subhead=payload["subhead"],
+        lede=payload["lede"],
+        nut_graf=payload["nut_graf"],
+        in_this_issue=_list(TOCItem, payload.get("in_this_issue")),
+        by_the_numbers=_list(StatHighlight, payload.get("by_the_numbers")),
+        lead_story=_only(LeadStory, payload["lead_story"]),
+        lead_story_why_it_matters=payload["lead_story_why_it_matters"],
+        top_movers=_list(WatchItem, payload.get("top_movers")),
+        top_movers_why_it_matters=payload["top_movers_why_it_matters"],
+        coalition_watch=coalition_watch,
+        coalition_why_it_matters=payload["coalition_why_it_matters"],
+        quiet_convergences=_list(QuietConvergence, payload.get("quiet_convergences")),
+        resolution_spotlight=_only(ResolutionSpotlight, spotlight) if spotlight else None,
+        next_to_watch=_list(NextToWatch, payload.get("next_to_watch")),
+        bloc_state=_list(BlocState, payload.get("bloc_state")),
+        freshness=payload.get("freshness") or {},
+        methodology=payload.get("methodology") or [],
+        sources=payload.get("sources") or [],
+        chart_payloads=payload.get("chart_payloads") or {},
+    )

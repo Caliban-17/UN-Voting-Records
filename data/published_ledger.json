@@ -1,18 +1,10 @@
 [
   {
-    "slug": "2026-w21-blr-gha",
+    "slug": "2026-w21-arg-grd",
     "edition_date": "2026-05-19",
     "edition_number": 21,
     "country_focus": null,
-    "content_hash": "a8ab339f5f99c9a2582b273337478e736a888c7992f6250e0ee9cf9733d77a15",
-    "published_at": "2026-05-19T19:53:33Z"
-  },
-  {
-    "slug": "2026-w23-blr-slb",
-    "edition_date": "2026-06-02",
-    "edition_number": 23,
-    "country_focus": null,
-    "content_hash": "bf0cb536f8bb02651efd33d3c0fd4f3f5224ecd3cb8730e1dd955c2ab7689dca",
-    "published_at": "2026-06-02T12:48:08Z"
+    "content_hash": "7ec07a668ac28a267719f88a55c4bbb675aa5317c0a918ef824a0de7b7471f7a",
+    "published_at": "2026-05-19T19:16:47Z"
   }
 ]
