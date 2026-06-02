@@ -849,3 +849,102 @@ def render_html(edition: NewsletterEdition) -> str:
 
     o.append('</div></body></html>')
     return "\n".join(o)
+
+
+# ── Retrospective ─────────────────────────────────────────────────────────────
+# A "year in review" rendered from the edition archive's aggregated drift
+# counts (src.newsletter_archive.retrospective_drift_count). Turns the raw
+# {pairs, n_editions} report into an editorial recap of the most-tracked
+# realignments across every edition shipped in the period.
+
+
+def _retro_name(code: str, lookup) -> str:
+    return (lookup or {}).get(code, code)
+
+
+def render_retrospective_markdown(report: dict, name_lookup=None, year=None) -> str:
+    """Render a ``retrospective_drift_count`` report as an editorial Markdown recap."""
+    pairs = report.get("pairs") or []
+    n_ed = int(report.get("n_editions", 0) or 0)
+    period = str(year) if year else "All-Time"
+
+    lines = [f"# UN-Scrupulous — {period} Retrospective", ""]
+    if n_ed == 0 or not pairs:
+        lines += [
+            "_No editions archived yet — the retrospective fills in as weekly "
+            "editions accumulate._",
+            "",
+        ]
+        return "\n".join(lines) + "\n"
+
+    edition_word = "edition" if n_ed == 1 else "editions"
+    lines += [
+        f"_The country pairs whose alignment moved most across {n_ed} archived "
+        f"{edition_word}._",
+        "",
+    ]
+
+    top = pairs[0]
+    a = _retro_name(top["country_a"], name_lookup)
+    b = _retro_name(top["country_b"], name_lookup)
+    times = "time" if top["count"] == 1 else "times"
+    latest = f" (latest seen {top['latest_edition']})" if top.get("latest_edition") else ""
+    lines += [
+        f"## Drift of the {period}",
+        "",
+        (
+            f"**{a} ↔ {b}** was the most-tracked realignment of the period, "
+            f"surfacing in the top-drift list {top['count']} {times} and "
+            f"accumulating {top['total_abs_delta_pts']:.0f} points of cumulative "
+            f"swing{latest}."
+        ),
+        "",
+        "## Most-tracked realignments",
+        "",
+    ]
+    for i, p in enumerate(pairs[:10], 1):
+        pa = _retro_name(p["country_a"], name_lookup)
+        pb = _retro_name(p["country_b"], name_lookup)
+        appears = "appearance" if p["count"] == 1 else "appearances"
+        seen = f", latest {p['latest_edition']}" if p.get("latest_edition") else ""
+        lines.append(
+            f"{i}. **{pa} ↔ {pb}** — {p['count']} {appears}, "
+            f"{p['total_abs_delta_pts']:.0f} pts{seen}"
+        )
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def render_retrospective_text(report: dict, name_lookup=None, year=None) -> str:
+    """Plain-text variant of the retrospective recap."""
+    pairs = report.get("pairs") or []
+    n_ed = int(report.get("n_editions", 0) or 0)
+    period = str(year) if year else "ALL-TIME"
+
+    title = f"UN-SCRUPULOUS — {period} RETROSPECTIVE"
+    out = [title, "=" * len(title), ""]
+    if n_ed == 0 or not pairs:
+        out += [
+            "No editions archived yet — the retrospective fills in as weekly "
+            "editions accumulate.",
+            "",
+        ]
+        return "\n".join(out) + "\n"
+
+    edition_word = "edition" if n_ed == 1 else "editions"
+    out += [
+        f"The country pairs whose alignment moved most across {n_ed} archived "
+        f"{edition_word}.",
+        "",
+    ]
+    for i, p in enumerate(pairs[:10], 1):
+        pa = _retro_name(p["country_a"], name_lookup)
+        pb = _retro_name(p["country_b"], name_lookup)
+        appears = "appearance" if p["count"] == 1 else "appearances"
+        seen = f", latest {p['latest_edition']}" if p.get("latest_edition") else ""
+        out.append(
+            f"{i:>2}. {pa} <-> {pb} — {p['count']} {appears}, "
+            f"{p['total_abs_delta_pts']:.0f} pts{seen}"
+        )
+    out.append("")
+    return "\n".join(out) + "\n"

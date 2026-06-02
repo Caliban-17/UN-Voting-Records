@@ -29,7 +29,13 @@ from src.newsletter_archive import (
     retrospective_drift_count,
     save_edition as archive_save_edition,
 )
-from src.newsletter_render import render_html, render_markdown, render_text
+from src.newsletter_render import (
+    render_html,
+    render_markdown,
+    render_retrospective_markdown,
+    render_retrospective_text,
+    render_text,
+)
 from src.main import preprocess_for_similarity, calculate_similarity, perform_clustering
 from src.network_analysis import VotingNetwork
 from src.soft_power import SoftPowerCalculator
@@ -589,11 +595,42 @@ def newsletter_archive_save():
 
 @bp.route("/api/newsletter/retrospective", methods=["GET"])
 def newsletter_retrospective():
-    """Aggregate top-drift counts across the archive — drift of the year."""
+    """Aggregate top-drift counts across the archive — drift of the year.
+
+    Query params:
+      - year (int, optional) — restrict to a single year; default: whole archive
+      - format (json | markdown | text, default: json) — ``markdown``/``text``
+        render an editorial "year in review" recap; ``json`` returns the raw
+        aggregated report.
+    """
     year = request.args.get("year")
+    fmt = str(request.args.get("format", "json")).lower()
+    if fmt not in {"json", "markdown", "md", "text", "txt"}:
+        return make_error("format must be one of: json, markdown, text", 400)
     try:
         year_int = int(year) if year else None
         report = retrospective_drift_count(year=year_int)
+
+        # Names are best-effort: the retrospective reads the archive, not the
+        # dataset, so render with country names when data is loaded and fall
+        # back to ISO codes otherwise.
+        names = country_names() if get_df() is not None else None
+
+        if fmt in ("markdown", "md"):
+            body = render_retrospective_markdown(report, names, year_int)
+            return Response(
+                body,
+                mimetype="text/markdown; charset=utf-8",
+                headers={"Content-Disposition": (
+                    f"inline; filename=atlas-retrospective-{year_int or 'all'}.md"
+                )},
+            )
+        if fmt in ("text", "txt"):
+            return Response(
+                render_retrospective_text(report, names, year_int),
+                mimetype="text/plain; charset=utf-8",
+            )
+
         # Bounds for the methodology metadata — when no year filter is set,
         # use the full year range of the actual dataset rather than a literal.
         bound_lo, bound_hi = get_year_bounds()
