@@ -1637,11 +1637,9 @@ function renderDriftFeed(targetEl, drifts, options = {}) {
     const arrow = deltaPts >= 0 ? "▲" : "▼";
     const sign = deltaPts >= 0 ? "+" : "";
     const headerLabel =
-      focusCountry && drift.country_a === focusCountry
-        ? `${drift.country_a} ↔ ${drift.country_b}`
-        : focusCountry && drift.country_b === focusCountry
-          ? `${drift.country_b} ↔ ${drift.country_a}`
-          : `${drift.country_a} ↔ ${drift.country_b}`;
+      focusCountry && drift.country_b === focusCountry
+        ? `${nameFor(drift.country_b)} ↔ ${nameFor(drift.country_a)}`
+        : `${nameFor(drift.country_a)} ↔ ${nameFor(drift.country_b)}`;
 
     const topicNames = (drift.driving_topics || [])
       .slice(0, 3)
