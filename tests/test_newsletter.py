@@ -273,3 +273,37 @@ def test_render_markdown_escapes_or_preserves_topic_strings():
     md = render_markdown(edition)
     # We don't want any raw `{` or `}` literals from f-string bugs.
     assert "{" not in md or "}" not in md or re.search(r"\{[a-z_]+\}", md) is None
+
+
+def test_renderers_include_country_code_glossary():
+    """Every format ends with a 'Country codes' key, and every (CODE)
+    parenthetical in the body is decodable there — so the ISO-3 codes are never
+    ambiguous."""
+    from src.newsletter_render import _country_glossary
+
+    df = _milei_df()
+    edition = build_newsletter_edition(
+        df,
+        recent_year=2024,
+        baseline_window_years=3,
+        name_lookup={"ARG": "Argentina", "TKM": "Turkmenistan", "USA": "United States"},
+    )
+    md = render_markdown(edition)
+    txt = render_text(edition)
+    html = render_html(edition)
+
+    assert "### Country codes" in md
+    assert "COUNTRY CODES" in txt.upper()
+    assert "Country codes" in html
+
+    gloss = dict(_country_glossary(edition))
+    assert gloss, "glossary should not be empty"
+    assert gloss.get("ARG") == "Argentina"  # names resolved where provided
+
+    # Lead-story supporting moves use names, not bare codes.
+    assert not re.search(r"- [A-Z]{3} ↔ [A-Z]{3}:", md)
+
+    # Every (CODE) parenthetical in the body is covered by the glossary.
+    body = md.split("### Country codes")[0]
+    paren = set(re.findall(r"\(([A-Z]{3})\)", body))
+    assert paren <= set(gloss), f"codes missing from glossary: {paren - set(gloss)}"

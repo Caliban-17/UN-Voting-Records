@@ -54,11 +54,52 @@ def _esc(s: str) -> str:
     return _html.escape(str(s or ""))
 
 
+def _edition_lookup(edition) -> dict:
+    """Code -> display-name map carried on the edition (via chart_payloads)."""
+    return (getattr(edition, "chart_payloads", None) or {}).get("name_lookup") or {}
+
+
+def _country_glossary(edition) -> list:
+    """Every ISO-3 code referenced anywhere in the edition, mapped to a display
+    name and sorted by code — the data behind the end-of-edition 'Country
+    codes' key. Names come from the already-named fields where available, else
+    the edition's name_lookup, else the bare code."""
+    lookup = _edition_lookup(edition)
+    pairs: dict[str, str] = {}
+
+    def add(code, name=None):
+        if not code:
+            return
+        c = str(code)
+        pairs[c] = name or lookup.get(c) or c
+
+    for m in edition.top_movers or []:
+        add(m.country, m.name)
+    for snap in edition.coalition_watch or []:
+        for mv in snap.movers or []:
+            add(mv.country, mv.name)
+    if edition.resolution_spotlight:
+        for b in edition.resolution_spotlight.breakaways or []:
+            add(b.get("country"), b.get("name"))
+    for q in edition.quiet_convergences or []:
+        add(q.country_a, q.name_a)
+        add(q.country_b, q.name_b)
+    if edition.lead_story:
+        for d in edition.lead_story.supporting_drifts or []:
+            add(d.get("country_a"))
+            add(d.get("country_b"))
+    for d in (getattr(edition, "chart_payloads", None) or {}).get("top_drifts_raw") or []:
+        add(d.get("country_a"))
+        add(d.get("country_b"))
+    return sorted(pairs.items())
+
+
 # ── Markdown ────────────────────────────────────────────────────────────────
 
 
 def render_markdown(edition: NewsletterEdition) -> str:
     lines: list[str] = []
+    lookup = _edition_lookup(edition)
     lines.append(
         f"# {edition.publication} — Edition №{edition.edition_number}"
     )
@@ -107,7 +148,8 @@ def render_markdown(edition: NewsletterEdition) -> str:
             topics = [t for t in topics if t]
             topic_str = f" — on {', '.join(topics)}" if topics else ""
             lines.append(
-                f"- {d['country_a']} ↔ {d['country_b']}: "
+                f"- {lookup.get(d['country_a'], d['country_a'])} ↔ "
+                f"{lookup.get(d['country_b'], d['country_b'])}: "
                 f"{d['baseline_agreement'] * 100:.0f}% → "
                 f"{d['recent_agreement'] * 100:.0f}% "
                 f"({_signed_pts(d['delta'])}){topic_str}"
@@ -225,6 +267,11 @@ def render_markdown(edition: NewsletterEdition) -> str:
         f"Latest vote in source: {fr['latest_vote_date']} "
         f"({fr['days_since_latest_vote']} days ago)._"
     )
+    glossary = _country_glossary(edition)
+    if glossary:
+        lines.append("")
+        lines.append("### Country codes")
+        lines.append(" · ".join(f"**{code}** {name}" for code, name in glossary))
     return "\n".join(lines)
 
 
@@ -241,6 +288,7 @@ def render_text(edition: NewsletterEdition) -> str:
     """Plain-text version of the edition. Designed for the text/plain MIME
     fallback in multipart email — and also for piping into a terminal."""
     lines: list[str] = []
+    lookup = _edition_lookup(edition)
 
     def hr(char: str = "─", n: int = 60) -> None:
         lines.append(char * n)
@@ -295,7 +343,8 @@ def render_text(edition: NewsletterEdition) -> str:
             topics = [t for t in topics if t]
             topic_str = f" — on {', '.join(topics)}" if topics else ""
             lines.append(
-                f"  • {d['country_a']} <-> {d['country_b']}: "
+                f"  • {lookup.get(d['country_a'], d['country_a'])} <-> "
+                f"{lookup.get(d['country_b'], d['country_b'])}: "
                 f"{d['baseline_agreement'] * 100:.0f}% -> "
                 f"{d['recent_agreement'] * 100:.0f}% "
                 f"({_signed_pts(d['delta'])}){topic_str}"
@@ -384,6 +433,12 @@ def render_text(edition: NewsletterEdition) -> str:
         f"Latest vote in source: {fr['latest_vote_date']} "
         f"({fr['days_since_latest_vote']} days ago)."
     ))
+    glossary = _country_glossary(edition)
+    if glossary:
+        section("Country codes")
+        lines.append(_wrap_para(
+            "  ·  ".join(f"{code} {name}" for code, name in glossary), width=74
+        ))
     return "\n".join(lines)
 
 
@@ -552,6 +607,7 @@ def _stat_row_html(stats: Iterable[StatHighlight]) -> str:
 
 def render_html(edition: NewsletterEdition) -> str:
     o: list[str] = []
+    lookup = _edition_lookup(edition)
     o.append('<!doctype html><html lang="en"><head><meta charset="utf-8">')
     o.append('<meta name="viewport" content="width=device-width,initial-scale=1">')
     o.append(f'<title>{_esc(edition.email_subject)}</title>')
@@ -650,8 +706,9 @@ def render_html(edition: NewsletterEdition) -> str:
             topics = [t for t in topics if t]
             topic_str = f" — on {', '.join(topics)}" if topics else ""
             o.append(
-                f'<li style="margin:2px 0;"><strong>{_esc(d["country_a"])} ↔ '
-                f'{_esc(d["country_b"])}</strong>: '
+                f'<li style="margin:2px 0;"><strong>'
+                f'{_esc(lookup.get(d["country_a"], d["country_a"]))} ↔ '
+                f'{_esc(lookup.get(d["country_b"], d["country_b"]))}</strong>: '
                 f'{d["baseline_agreement"] * 100:.0f}% → '
                 f'{d["recent_agreement"] * 100:.0f}% '
                 f'({_signed_pts(d["delta"])}){_esc(topic_str)}</li>'
@@ -845,6 +902,17 @@ def render_html(edition: NewsletterEdition) -> str:
         f'{_esc(fr.get("latest_vote_date") or "?")} '
         f'({fr.get("days_since_latest_vote", "?")} days ago).</em></p>'
     )
+    glossary = _country_glossary(edition)
+    if glossary:
+        o.append(f'<div style="{_S["footer_h4"]}">Country codes</div>')
+        o.append(
+            '<p style="margin:6px 0 0;font-size:12px;line-height:1.7;color:#456783;">'
+            + " · ".join(
+                f"<strong>{_esc(code)}</strong> {_esc(name)}"
+                for code, name in glossary
+            )
+            + "</p>"
+        )
     o.append('</div>')
 
     o.append('</div></body></html>')
