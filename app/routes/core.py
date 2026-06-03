@@ -412,6 +412,19 @@ def country_alignment_map(code: str):
         return make_server_error("Alignment map error", exc)
 
 
+@bp.route("/api/countries", methods=["GET"])
+def countries_list():
+    """ISO-3 code → editorial display name. Fetched once by the client so
+    charts can decode bare codes (axis labels show 'HND'; hover/key show
+    'Honduras')."""
+    if get_df() is None:
+        return make_error("Data not loaded", 500)
+    try:
+        return jsonify({"countries": country_names()})
+    except Exception as exc:
+        return make_server_error("Countries list error", exc)
+
+
 @bp.route("/api/drift", methods=["GET"])
 @cached_api
 def alignment_drift():

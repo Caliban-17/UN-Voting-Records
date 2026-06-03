@@ -26,6 +26,7 @@ const state = {
   lastPrediction: null,
   lastTraining: null,
   methodsMeta: null,
+  countryNames: {},
 };
 
 // Colorblind-safe palette (Okabe-Ito), single source of truth for Plotly
@@ -2033,6 +2034,42 @@ async function runAnalysis() {
   }
 }
 
+// ── Country-name lookup (decode ISO-3 codes on axes / hovers / keys) ────────
+
+async function loadCountryNames() {
+  try {
+    const res = await axios.get("/api/countries");
+    state.countryNames = res.data?.countries || {};
+  } catch (error) {
+    state.countryNames = {};
+  }
+}
+
+function nameFor(code) {
+  return (state.countryNames && state.countryNames[code]) || code;
+}
+
+// Render a compact "CODE — Name" key into `targetId` for the codes shown on a
+// chart axis, so the three-letter labels aren't ambiguous.
+function renderCodeKey(targetId, codes) {
+  const el = document.getElementById(targetId);
+  if (!el) return;
+  clearNode(el);
+  const label = document.createElement("span");
+  label.className = "code-key__label";
+  label.textContent = "Codes:";
+  el.appendChild(label);
+  Array.from(new Set(codes)).forEach((c) => {
+    const item = document.createElement("span");
+    item.className = "code-key__item";
+    const b = document.createElement("b");
+    b.textContent = c;
+    item.appendChild(b);
+    item.appendChild(document.createTextNode(" " + nameFor(c)));
+    el.appendChild(item);
+  });
+}
+
 // ── Alignment map · Pivotality · Abstention (new analytical views) ──────────
 
 async function loadAlignmentMap() {
@@ -2105,6 +2142,7 @@ async function loadPivotality() {
   if (summary) clearNode(summary);
   try {
     requirePlotly();
+    if (!Object.keys(state.countryNames).length) await loadCountryNames();
     const res = await axios.post("/api/analysis/pivotality", {
       start_year: state.startYear,
       end_year: state.endYear,
@@ -2140,8 +2178,9 @@ async function loadPivotality() {
           orientation: "h",
           x: rows.map((r) => r.value),
           y: rows.map((r) => r.code),
+          text: rows.map((r) => nameFor(r.code)),
           marker: { color: PALETTE.yes },
-          hovertemplate: "%{y}: %{x} swing votes<extra></extra>",
+          hovertemplate: "%{text} (%{y})<br>%{x} times on the prevailing side<extra></extra>",
         },
       ],
       {
@@ -2152,6 +2191,7 @@ async function loadPivotality() {
       },
       { responsive: true, displayModeBar: false },
     );
+    renderCodeKey("pivotalityKey", rows.map((r) => r.code));
   } catch (error) {
     showErrorElement(host, getErrorMessage(error));
   }
@@ -2165,6 +2205,7 @@ async function loadAbstention() {
   if (topicsHost) clearNode(topicsHost);
   try {
     requirePlotly();
+    if (!Object.keys(state.countryNames).length) await loadCountryNames();
     const res = await axios.post("/api/analysis/abstention", {
       start_year: state.startYear,
       end_year: state.endYear,
@@ -2187,8 +2228,9 @@ async function loadAbstention() {
             orientation: "h",
             x: countryRows.map((r) => r.rate * 100),
             y: countryRows.map((r) => r.code),
+            text: countryRows.map((r) => nameFor(r.code)),
             marker: { color: PALETTE.abstain },
-            hovertemplate: "%{y}: %{x:.0f}% abstained<extra></extra>",
+            hovertemplate: "%{text} (%{y})<br>%{x:.0f}% abstained<extra></extra>",
           },
         ],
         {
@@ -2199,6 +2241,7 @@ async function loadAbstention() {
         },
         { responsive: true, displayModeBar: false },
       );
+      renderCodeKey("abstentionKey", countryRows.map((r) => r.code));
     } else {
       showErrorElement(countriesHost, "No abstention data in this window.");
     }
@@ -2219,8 +2262,10 @@ async function loadAbstention() {
             orientation: "h",
             x: topicRows.map((r) => r.rate * 100),
             y: topicRows.map((r) => (r.topic.length > 34 ? r.topic.slice(0, 33) + "…" : r.topic)),
+            text: topicRows.map((r) => r.topic),
+            textposition: "none",
             marker: { color: "#d38b2a" },
-            hovertemplate: "%{y}: %{x:.0f}% abstained<extra></extra>",
+            hovertemplate: "%{text}<br>%{x:.0f}% abstained<extra></extra>",
           },
         ],
         {
@@ -2622,7 +2667,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     activateTab(state.activeTab, { skipLoad: true });
 
     await loadDataSummary();
-    await Promise.all([loadIssues(), loadMethods(), loadKnownEvents()]);
+    await Promise.all([loadIssues(), loadMethods(), loadKnownEvents(), loadCountryNames()]);
     await runAnalysis();
     writeHashState();
 

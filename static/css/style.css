@@ -34,6 +34,24 @@
   .bg-orb { animation: none !important; }
 }
 
+/* Compact "CODE — Name" legend under charts whose axes use ISO-3 codes. */
+.code-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  align-items: baseline;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-500);
+}
+.code-key:empty { display: none; }
+.code-key__label { font-weight: 600; color: var(--ink-700); }
+.code-key__item { white-space: nowrap; }
+.code-key__item b { color: var(--ink-900); font-weight: 600; }
+
 * {
   box-sizing: border-box;
 }
