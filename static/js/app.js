@@ -2087,7 +2087,10 @@ async function loadAlignmentMap() {
         margin: { l: 6, r: 6, t: 46, b: 6 },
         paper_bgcolor: "rgba(0,0,0,0)",
       },
-      { responsive: true, displayModeBar: false },
+      // topojsonURL points Plotly at the self-hosted world geometry
+      // (static/vendor/world_110m.json) instead of cdn.plot.ly — no external
+      // runtime dependency, so the basemap can't silently go blank.
+      { responsive: true, displayModeBar: false, topojsonURL: "/static/vendor/" },
     );
   } catch (error) {
     showErrorElement(host, getErrorMessage(error));
