@@ -14,5 +14,13 @@
     "country_focus": "ARG",
     "content_hash": "860517ebfa030f10b3e73d4efc1d5ed34d5dcc3826618f934e7546372b1e1fc2",
     "published_at": "2026-06-09T12:11:39Z"
+  },
+  {
+    "slug": "2026-w25-isr-isr-lbr",
+    "edition_date": "2026-06-16",
+    "edition_number": 25,
+    "country_focus": "ISR",
+    "content_hash": "0299f069b2945f16764a3ea1532b8056c1ab179d9232330aa05f4d677fd90348",
+    "published_at": "2026-06-16T14:26:04Z"
   }
 ]
