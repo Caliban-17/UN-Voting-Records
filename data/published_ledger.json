@@ -22,5 +22,13 @@
     "country_focus": "ISR",
     "content_hash": "0299f069b2945f16764a3ea1532b8056c1ab179d9232330aa05f4d677fd90348",
     "published_at": "2026-06-16T14:26:04Z"
+  },
+  {
+    "slug": "2026-w26-chn-chn-fsm",
+    "edition_date": "2026-06-23",
+    "edition_number": 26,
+    "country_focus": "CHN",
+    "content_hash": "00b010518bdc3dda9870aa7550348b5570dc8bab05809c198677f9afe3e641a6",
+    "published_at": "2026-06-23T12:15:28Z"
   }
 ]
