@@ -2858,6 +2858,7 @@ const STORY = {
   anchor: "USA",
   landmarks: [],
   activeLandmark: null,
+  emergency: [],
 };
 
 // One colour per theme (Okabe-Ito, its yellow swapped for a gold that
@@ -2979,11 +2980,13 @@ async function loadBigPicture(force = false) {
         landmarks: axios.get("/api/story/landmarks"),
         cuba: axios.get("/api/story/recurring/cuba"),
         calendar: axios.get("/api/story/calendar"),
+        emergency: axios.get("/api/story/emergency"),
       };
       const cardFor = {
         agenda: ["storyAgenda", "chart"], division: ["storyDivision", "chart"],
         alignment: ["storyAlignment", "chart"], scatter: ["storyScatter", "chart"],
         landmarks: ["storyLandmarks", "map"], cuba: ["storyRecurring", "chart"],
+        emergency: ["storyEmergency", "chart"],
       };
       const keys = Object.keys(requests);
       const settled = await Promise.allSettled(keys.map((k) => requests[k]));
@@ -3005,6 +3008,7 @@ async function loadBigPicture(force = false) {
       if (data.cuba) renderStoryRecurring(data.cuba);
       renderStoryStats(data);
       if (data.calendar) renderStoryCalendar(data.calendar);
+      if (data.emergency) renderStoryEmergency(data.emergency.sessions || []);
       STORY.loaded = true;
     } catch (error) {
       console.error("Big Picture failed", error);
@@ -3191,6 +3195,10 @@ function setupStoryControls() {
         if (host) showErrorElement(host, getErrorMessage(error));
       }
     });
+  }
+  const emergency = document.getElementById("storyEmergencySession");
+  if (emergency) {
+    emergency.addEventListener("change", () => renderEmergencySession(Number(emergency.value)));
   }
   const select = document.getElementById("storyAnchor");
   if (!select) return;
@@ -3460,4 +3468,52 @@ function renderStoryCalendar(d) {
   strong.textContent = "Where the session stands. ";
   el.appendChild(strong);
   el.appendChild(document.createTextNode(d.note));
+}
+
+
+// ── The emergency special sessions ──────────────────────────────────────────
+
+function renderStoryEmergency(sessions) {
+  STORY.emergency = sessions;
+  const select = document.getElementById("storyEmergencySession");
+  if (select) {
+    clearNode(select);
+    sessions.forEach((s) => {
+      const opt = document.createElement("option");
+      opt.value = String(s.number);
+      opt.textContent = `ES-${s.number} · ${s.label}`;
+      select.appendChild(opt);
+    });
+  }
+  const preferred = sessions.filter((s) => s.count >= 2).sort((a, b) => b.number - a.number)[0] || sessions[sessions.length - 1];
+  if (preferred) {
+    if (select) select.value = String(preferred.number);
+    renderEmergencySession(preferred.number);
+  }
+}
+
+function renderEmergencySession(number) {
+  const session = STORY.emergency.find((s) => s.number === number);
+  const host = storyEl("storyEmergency", "chart");
+  if (!session || !host) return;
+  clearNode(host);
+  const labels = session.votes.map((v) => `${v.symbol.replace("A/RES/", "")} · ${v.date}`);
+  const bar = (key, name, color) => ({
+    type: "bar", name, x: labels, y: session.votes.map((v) => v[key]), marker: { color },
+    customdata: session.votes.map((v) => v.title),
+    hovertemplate: `${name}: %{y}<br>%{customdata}<extra></extra>`,
+  });
+  Plotly.newPlot(host, [bar("yes", "For", "#0072b2"), bar("abstain", "Abstained", "#d38b2a"), bar("no", "Against", "#d55e00")], storyLayout({
+    barmode: "stack", bargap: 0.3,
+    xaxis: { type: "category", tickangle: session.votes.length > 8 ? -35 : 0, tickfont: { size: 10 } },
+    yaxis: { title: "members" },
+    hovermode: "x unified",
+    margin: { b: session.votes.length > 8 ? 110 : 60 },
+  }), PLOT_CONFIG);
+  const latest = session.votes[session.votes.length - 1];
+  setStoryText(
+    "storyEmergency", "finding",
+    `ES-${session.number}, ${session.label}: ${session.count} recorded vote${session.count === 1 ? "" : "s"}; the latest passed ${latest.yes} to ${latest.no} on ${latest.date}`,
+  );
+  setStoryText("storyEmergency", "takeaway", session.takeaway);
 }

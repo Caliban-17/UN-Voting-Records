@@ -972,3 +972,102 @@ def recent_votes(
         "votes": votes,
         "takeaway": takeaway,
     }
+
+
+# ── 8. The emergency special sessions ────────────────────────────────────────
+# Under Uniting for Peace (377(V), 1950) the Assembly can meet in emergency
+# special session when a veto blocks the Security Council. Two are still open
+# and are the closest thing the record has to a running story: the tenth on
+# the occupied Palestinian territory (since 1997) and the eleventh on Ukraine
+# (since 2022). Resolution symbols carry the session: A/RES/ES-11/1, and for
+# the early ones A/RES/997(ES-I).
+
+EMERGENCY_SESSIONS: dict[int, str] = {
+    1: "Suez (1956)",
+    2: "Hungary (1956)",
+    3: "Lebanon and Jordan (1958)",
+    4: "Congo (1960)",
+    5: "Middle East (1967)",
+    6: "Afghanistan (1980)",
+    7: "Palestine (1980–82)",
+    8: "Namibia (1981)",
+    9: "Occupied Arab territories (1982)",
+    10: "Occupied East Jerusalem and the Palestinian territory (since 1997)",
+    11: "Ukraine (since 2022)",
+}
+
+_ROMAN = {"I": 1, "V": 5, "X": 10}
+
+
+def _roman_to_int(text: str) -> int:
+    total, prev = 0, 0
+    for ch in reversed(text):
+        value = _ROMAN[ch]
+        total += -value if value < prev else value
+        prev = max(prev, value)
+    return total
+
+
+def emergency_session_number(symbol: str) -> Optional[int]:
+    """11 for 'A/RES/ES-11/1', 1 for 'A/RES/997(ES-I)', None otherwise."""
+    text = str(symbol or "")
+    m = re.search(r"ES-(\d+)", text)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"\(ES-([IVX]+)\)", text)
+    if m:
+        return _roman_to_int(m.group(1))
+    return None
+
+
+def emergency_sessions(df: pd.DataFrame) -> list[dict]:
+    """Every recorded vote of every emergency special session in the record,
+    grouped by session and in order, with a one-sentence takeaway each."""
+    res = resolutions_table(df)
+    if "resolution" not in res.columns:
+        return []
+    numbers = res["resolution"].astype(str).map(emergency_session_number)
+    hits = res[numbers.notna()].assign(_es=numbers[numbers.notna()].astype(int))
+    out = []
+    for number, group in hits.groupby("_es"):
+        group = group.assign(_d=pd.to_datetime(group["date"], errors="coerce")).sort_values("_d")
+        votes = [
+            {
+                "rcid": int(r.rcid),
+                "date": str(r.date)[:10],
+                "symbol": str(r.resolution),
+                "title": r.title,
+                "yes": int(r.total_yes) if pd.notna(r.total_yes) else None,
+                "no": int(r.total_no) if pd.notna(r.total_no) else None,
+                "abstain": int(r.total_abstentions) if pd.notna(r.total_abstentions) else None,
+                "winning_share": None if pd.isna(r.winning_share) else round(float(r.winning_share), 3),
+            }
+            for r in group.itertuples(index=False)
+        ]
+        latest = votes[-1]
+        with_yes = [v for v in votes if v["yes"] is not None]
+        if len(with_yes) >= 2:
+            low = min(with_yes, key=lambda v: v["yes"])
+            high = max(with_yes, key=lambda v: v["yes"])
+            takeaway = (
+                f"{len(votes)} recorded votes since {votes[0]['date'][:4]}. Support ranged from "
+                f"{low['yes']} ({low['date'][:4]}) to {high['yes']} ({high['date'][:4]}); the latest, "
+                f"\"{latest['title']}\" on {latest['date']}, passed {latest['yes']} to {latest['no']} "
+                f"with {latest['abstain']} abstaining."
+            )
+        else:
+            takeaway = (
+                f"One recorded vote: \"{latest['title']}\" on {latest['date']}, "
+                f"{latest['yes']} to {latest['no']} with {latest['abstain']} abstaining."
+            )
+        out.append({
+            "number": int(number),
+            "label": EMERGENCY_SESSIONS.get(int(number), f"Emergency special session {int(number)}"),
+            "first": votes[0]["date"],
+            "last": latest["date"],
+            "count": len(votes),
+            "votes": votes,
+            "takeaway": takeaway,
+        })
+    out.sort(key=lambda s: s["number"])
+    return out

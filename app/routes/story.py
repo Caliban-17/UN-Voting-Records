@@ -184,3 +184,16 @@ def story_calendar():
         return make_error(str(exc), 400)
     except Exception as exc:
         return make_server_error("Story calendar error", exc)
+
+
+@bp.route("/emergency", methods=["GET"])
+@cached_api
+def story_emergency():
+    if get_df() is None:
+        return make_error("Data not loaded", 500)
+    try:
+        from src.story_analysis import emergency_sessions
+
+        return jsonify({"sessions": emergency_sessions(get_df())})
+    except Exception as exc:
+        return make_server_error("Story emergency error", exc)

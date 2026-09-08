@@ -56,13 +56,18 @@ headline finding computed from the numbers, the chart, a one-sentence takeaway a
 6. **The same vote, year after year** — nine recurring resolutions as longitudinal probes: the Cuba
    embargo, glorification of Nazism, UNRWA, Palestinian self-determination, the Golan, human rights
    in Iran, unilateral sanctions, the nuclear ban treaty, and an arms race in outer space.
+7. **The emergency sessions** — every recorded vote of the emergency special sessions convened
+   under Uniting for Peace, with the tenth (Palestine, since 1997) and eleventh (Ukraine, since
+   2022) as running series.
 
 Every country profile opens with **the long view**: that member's agreement with the US, Russia and
 China, and its winning-side rate, for every year on record. Landmark maps break the vote down by UN
 regional group. In season, the newsletter leads with **This week in the Assembly**: the recorded
 votes of the latest fortnight in the data, with the dissenters named. Every edition also carries
 **the week ahead** (`src/session_calendar.py`): where the session stands and which recurring
-resolutions are due, with their typical date measured from the record; once an edition has been
+resolutions are due, with their typical date measured from the record, the exact opening date of
+the session (rule 1 of the rules of procedure, computed), and any recurring vote that has just
+landed with its tally against last year's; once an edition has been
 published, the next one reports each big-picture number as up, down or unchanged since it. A
 **Share this country** button copies a deep link to any profile.
 
@@ -415,7 +420,8 @@ weight = 0.95^(current_year − vote_year)
 | `GET /api/story/recurring/<key>` | one recurring resolution's tallies per year, plus the catalogue |
 | `GET /api/story/country/<code>` | a member's agreement with the US, Russia and China per year, and its winning-side rate |
 | `GET /api/story/this-week?days=14` | the recorded votes of the latest fortnight in the data, dissenters named |
-| `GET /api/story/calendar?as_of=YYYY-MM-DD` | the session phase on that date and the recurring votes due within five weeks |
+| `GET /api/story/calendar?as_of=YYYY-MM-DD` | the session phase, the exact opening date, votes just landed, and the recurring votes due within five weeks |
+| `GET /api/story/emergency` | every recorded vote of every emergency special session, grouped and in order |
 
 The newsletter route `GET /api/newsletter/weekly` also accepts `edition_date=YYYY-MM-DD`, which is what decides whether the in-season "This week in the Assembly" panel appears (latest recorded vote within a fortnight of that date).
 

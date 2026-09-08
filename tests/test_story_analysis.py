@@ -361,3 +361,69 @@ def test_ledger_snapshot_lets_the_next_edition_report_deltas(tmp_path, monkeypat
     assert votes["delta"] == 0
     # Context never touches the dedup hash.
     assert second.content_hash == first.content_hash
+
+
+# ── exact session dates, landed votes, emergency sessions ────────────────────
+
+
+def test_session_opening_matches_the_record_of_openings():
+    from datetime import date
+
+    from src.session_calendar import general_debate_opening, session_number, session_opening
+
+    known = {2018: (9, 18), 2019: (9, 17), 2020: (9, 15), 2021: (9, 14), 2022: (9, 13),
+             2023: (9, 5), 2024: (9, 10), 2025: (9, 9), 2026: (9, 8)}
+    for year, (m, d) in known.items():
+        assert session_opening(year) == date(year, m, d), year
+    assert general_debate_opening(2025) == date(2025, 9, 23)
+    assert general_debate_opening(2019) == date(2019, 9, 24)
+    assert session_number(2026) == 81
+
+
+def test_calendar_states_the_opening_date_in_september():
+    from src.session_calendar import calendar_for
+
+    cal = calendar_for(_frame(), as_of="2026-09-01")
+    assert "81st session opens on Tuesday 8 September" in cal["note"]
+    assert cal["session"] == {"number": 81, "ordinal": "81st", "opens": "2026-09-08", "general_debate": "2026-09-22"}
+    assert "opens today" in calendar_for(_frame(), as_of="2026-09-08")["note"]
+    assert "general debate begins" in calendar_for(_frame(), as_of="2026-09-15")["note"]
+    assert "session" not in calendar_for(_frame(), as_of="2026-06-01")["note"].lower() or "Between" in calendar_for(_frame(), as_of="2026-06-01")["note"]
+
+
+def test_landed_votes_compare_with_last_year():
+    from src.session_calendar import calendar_for, landed_recurring_votes
+
+    landed = landed_recurring_votes(_frame(), as_of="2003-11-10")
+    assert [x["key"] for x in landed] == ["cuba"]
+    hit = landed[0]
+    assert hit["days_ago"] == 5 and hit["this"] == {"yes": 2, "no": 1, "abstain": 0}
+    assert hit["last_year"] == {"yes": 3, "no": 1, "abstain": 0}
+    assert hit["change"] == "1 fewer in favour than last year" and hit["moved"] is False
+    assert "Just landed: US embargo on Cuba on 5 November" in calendar_for(_frame(), as_of="2003-11-10")["note"]
+    assert landed_recurring_votes(_frame(), as_of="2004-01-10") == []
+
+
+def test_emergency_sessions_group_votes_by_session():
+    df = _frame().copy()
+    symbols = {1: "A/RES/ES-11/1", 2: "A/RES/ES-11/2", 3: "A/RES/997(ES-I)"}
+    df["resolution"] = df["rcid"].map(symbols).fillna(df["resolution"])
+    S._res_cache.clear()
+    sessions = S.emergency_sessions(df)
+    assert [s["number"] for s in sessions] == [1, 11]
+    eleventh = sessions[1]
+    assert eleventh["count"] == 2 and eleventh["label"].startswith("Ukraine")
+    assert [v["symbol"] for v in eleventh["votes"]] == ["A/RES/ES-11/1", "A/RES/ES-11/2"]
+    assert "Support ranged from" in eleventh["takeaway"]
+    assert sessions[0]["takeaway"].startswith("One recorded vote")
+    assert S.emergency_session_number("A/RES/72/15") is None
+    S._res_cache.clear()
+
+
+def test_story_emergency_endpoint_lists_open_sessions(client):
+    data = client.get("/api/story/emergency").get_json()
+    numbers = {s["number"] for s in data["sessions"]}
+    assert {10, 11} <= numbers
+    eleventh = next(s for s in data["sessions"] if s["number"] == 11)
+    assert eleventh["votes"][0]["symbol"] == "A/RES/ES-11/1"
+    assert client.get("/api/story/calendar?as_of=2026-09-01").get_json()["session"]["number"] == 81
