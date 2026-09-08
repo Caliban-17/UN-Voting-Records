@@ -1,795 +1,274 @@
-# CLAUDE.md - UN Voting Records Analyzer
+# CLAUDE.md — UN-Scrupulous / UN Alignment Atlas
 
-## Project Overview
+Guide for AI assistants working in this repository. It describes what is
+actually here; when the code and this file disagree, trust the code and fix
+this file.
 
-The **UN Voting Records Analyzer** is a Streamlit-based web application for analyzing and visualizing United Nations General Assembly voting patterns. The application provides:
+## What this is
 
-- Voting pattern analysis and visualization using hierarchical clustering
-- Vote prediction using machine learning (Random Forest)
-- Interactive visualizations (PCA projections, cluster analysis, entropy calculations)
-- Issue salience timelines and resolution polarity analysis
+Two products on one dataset of UN General Assembly roll-call votes
+(1946 → present, ~950k rows from the UN Digital Library):
 
-**Tech Stack**: Python 3.x, Streamlit, pandas, scikit-learn, matplotlib, seaborn, scipy
+1. **A Flask web app** ("What is the UN voting on, and who stands where?") —
+   a single-page site that opens on **The Big Picture** (six whole-record
+   readings: agenda, divisions, a power and the world, Washington–Beijing
+   scatter, landmark votes, the annual Cuba vote), then country profiles, an
+   alignment map, coalition builder, drift feed, network/bloc views, and the
+   older clustering/PCA/prediction tools under "Tools".
+2. **A weekly newsletter pipeline** ("Weekly Atlas") — composes an edition
+   from the data, emails it to a Substack inbox on a schedule, and only
+   publishes when the underlying data has actually moved.
 
-## Repository Structure
+**Stack**: Python 3.12 (CI/Docker; local venv may be 3.13), Flask, pandas,
+scikit-learn, networkx, Plotly (server-side figures and the browser), a
+vanilla-JS frontend, GitHub Actions for data refresh + publishing.
 
-```
-UN-Voting-Records/
-├── src/                          # Source code modules
-│   ├── __init__.py              # Package initialization
-│   ├── app.py                   # Streamlit web application (entry point)
-│   ├── main.py                  # Core analysis logic & async model training
-│   ├── config.py                # Configuration settings and constants
-│   ├── data_processing.py       # Data loading, preprocessing, matrix creation
-│   ├── model.py                 # ML models for vote prediction
-│   └── visualization.py         # Plotting and charting functions
-├── tests/                        # Test suite
-│   ├── __init__.py
-│   ├── conftest.py              # Pytest configuration and fixtures
-│   ├── test_data_processing.py  # Tests for data processing
-│   ├── test_main.py             # Tests for main module
-│   ├── test_model.py            # Tests for ML models
-│   └── test_visualization.py    # Tests for visualizations
-├── data/                         # Data directory (gitignored)
-│   └── 2025_03_31_ga_voting_corr1.csv  # Expected CSV file location
-├── requirements.txt              # Python dependencies
-├── README.md                     # User-facing documentation
-├── .gitignore                    # Git ignore rules
-└── CLAUDE.md                     # This file - AI assistant guide
+There is **no Streamlit app**. `src/app.py` does not exist.
+
+## Repository map
 
 ```
-
-## Codebase Architecture
-
-### Modular Design Philosophy
-
-The codebase follows a **separation of concerns** pattern:
-
-1. **config.py** - Single source of truth for all configuration
-2. **data_processing.py** - Pure data transformation functions
-3. **model.py** - Machine learning logic isolated from UI
-4. **visualization.py** - Plotting functions with consistent signatures
-5. **app.py** - Streamlit UI layer (presentation only)
-6. **main.py** - CLI/script entry point for batch processing
-
-### Key Design Patterns
-
-- **Configuration-driven**: All magic numbers, paths, and settings in `config.py`
-- **Type hints**: Functions use Python type hints for clarity
-- **Logging**: Comprehensive logging using Python's `logging` module
-- **Error handling**: Try-except blocks with informative error messages
-- **Async/batch processing**: Memory-efficient model training with batch processing
-
-## Module Descriptions
-
-### src/config.py
-**Purpose**: Central configuration file
-
-**Key Constants**:
-- `UN_VOTES_CSV_PATH`: Path to the CSV data file (data/2025_03_31_ga_voting_corr1.csv)
-- `VOTE_MAP`: Mapping from vote values to numeric scores (Yes=1, No=-1, Abstain/Other/Absent=0)
-- `COLUMN_RENAME_MAP`: Standardizes CSV column names
-- `ESSENTIAL_COLUMNS`: Required columns for analysis
-- `OPTIONAL_COLUMNS`: Additional context columns
-- `DEFAULT_*`: Default values for clustering, plotting, etc.
-- `PLOT_COLORS`: Visualization color schemes
-
-**When to modify**: When adding new configuration parameters, default values, or file paths
-
-### src/data_processing.py
-**Purpose**: Data loading, cleaning, and transformation
-
-**Key Functions**:
-- `load_and_preprocess_data(file_path)`: Loads CSV, handles malformed rows, standardizes columns
-  - Returns: (DataFrame, list of unique issues)
-  - Handles: Date parsing, vote mapping, column renaming, missing values
-
-- `create_vote_matrix(df, start_year, end_year)`: Creates country x resolution voting matrix
-  - Returns: (vote_matrix DataFrame, country_list, filtered_df)
-  - Creates pivot table with countries as rows, resolution IDs as columns
-
-- `calculate_country_entropy(df)`: Calculates Shannon entropy for voting predictability
-  - Higher entropy = more varied/unpredictable voting
-
-- `get_issue_statistics(df)`: Generates statistics per issue
-  - Returns: Dict with vote_counts, distributions, entropy
-
-**Error Handling Pattern**:
-```python
-try:
-    # Main logic
-    logger.info("Starting operation...")
-    # ... operation code ...
-except Exception as e:
-    logger.error(f"Error in operation: {str(e)}")
-    return None  # or appropriate default
+web_app.py                 Entry point: create_app() + load_data() at import
+app/
+  __init__.py              Application factory, CORS, blueprint registration
+  middleware.py            Per-endpoint rate limit, analysis-slot semaphore, CSP/security headers
+  services.py              Global DataFrame, name/year helpers, caches, background job queue
+  routes/
+    core.py                "/" , /health, /api/data/*, /api/country/*, /api/countries,
+                           /api/drift*, /api/newsletter/*, /api/events, /api/coalition,
+                           /api/methods, /api/insights, /api/report
+    analysis.py            /api/analysis/{clustering,soft-power,abstention,pivotality,
+                           bloc-timeline,compare,divergence-report}
+    visualization.py       /api/visualization/{network,pca,issue-timeline,soft-power-trends}
+    prediction.py          /api/prediction/{train,predict,issues}
+    jobs.py                /api/jobs/{<id>,train-model,soft-power-trends,network-animation}
+    story.py               /api/story/{agenda,division,alignment,scatter,landmarks,
+                           resolution/<rcid>/map,recurring/<key>,country/<code>,
+                           this-week,calendar}  (whole-record, cached)
+src/                       Analysis + newsletter library (no Flask imports here)
+  config.py                Paths, VOTE_ENCODING, column maps, env-driven settings
+  story_analysis.py        The Big Picture: themes, division, alignment, scatter, landmarks
+  session_calendar.py      The Assembly's annual rhythm + typical dates of recurring votes
+  regional_groups.py       UN regional groups by ISO-3 (+ historical states, lineages)
+  data_processing.py       CSV/parquet loading, schema normalisation, vote matrix, entropy
+  country_display.py       ISO-3 -> editorial names ("Iran", "North Korea") + title_case_name()
+  country_profile.py       Allies/opponents/P5 alignment for one country
+  drift_analysis.py        Pairwise alignment drifts (the "What Changed" feed + newsletter lead)
+  coalition.py             Coalition builder for a topic
+  divergence_analysis.py   Where two countries split, by resolution
+  main.py                  Vote matrix -> cosine similarity -> agglomerative clustering
+  similarity_utils.py      Numerically stable cosine similarity
+  cluster_naming.py        Auto-names clusters
+  network_analysis.py / network_viz.py   Voting network + Plotly renderings
+  soft_power.py            PageRank/betweenness/eigenvector composite
+  pivotality_analysis.py   Who lands on the prevailing side of divided votes
+  abstention_analysis.py   Abstention rates by country and topic
+  sankey_analysis.py       Bloc-membership timeline
+  model.py                 Random-forest vote predictor
+  data_fetcher_marc.py     UN DL MARC-XML fetcher (plain HTTP; used by scripts/refresh_data.py)
+  data_fetcher.py          Older Playwright scraper; only its merge/dedup logic is still used
+  cache_utils.py           LRUCache, cached_api decorator, model registry
+  newsletter.py            Edition composer (NewsletterEdition, content_hash, pick_recent_year,
+                           edition_to_dict / edition_from_dict)
+  newsletter_render.py     Markdown / email-safe HTML / plain-text renderers (+ country-code glossary)
+  newsletter_chart.py      Inline SVG charts for the newsletter
+  newsletter_voice.py      Headline/subhead/prose templates (deterministic per edition)
+  newsletter_email.py      MIME message builder (deterministic Message-ID, PNG chart via cairosvg)
+  newsletter_ledger.py     Committed ledger of published editions (data/published_ledger.json)
+  newsletter_archive.py    Disk archive of composed editions (data/editions/, gitignored)
+static/js/app.js           The whole frontend (single file, no build step)
+static/css/style.css       Styles; Okabe-Ito colour tokens (--ok / --warn / --bad)
+static/vendor/             Self-hosted Plotly 2.27, axios 1.20 and the world topojson
+templates/index.html       The one page; Plotly + axios served from static/vendor/
+scripts/refresh_data.py    Fetch new votes and merge them into the CSV (see "Data")
+tests/                     pytest suite (see "Testing")
+data/                      CSV + parquet cache (gitignored), known_events.json and
+                           published_ledger.json (committed)
+docs/                      Older planning/summary docs; may be stale
+.github/workflows/         tests, refresh-data, publish-newsletter, validate-events
 ```
 
-### src/model.py
-**Purpose**: Machine learning for vote prediction
+## Runtime architecture
 
-**Key Functions**:
-- `train_vote_predictor(df, train_yr_end, test_yr_start)`: Trains Random Forest classifier
-  - Features: country_identifier, issue (one-hot encoded)
-  - Returns: (model_pipeline, accuracy, classification_report, countries, train_size, test_size)
-  - Uses `ColumnTransformer` for preprocessing
+- `web_app.py` builds the app with `create_app()` and calls
+  `app.services.load_data()` **at import time**, so the DataFrame exists before
+  the first request under both the dev server and Gunicorn. Data load is the
+  slow step (a 360 MB CSV; a parquet cache beside it makes reloads fast).
+- `app/services.py` owns `df_global` plus helpers every route uses:
+  `get_df()`, `get_year_bounds()`, `data_freshness()`, `country_names()`
+  (ISO-3 → display name, cached per process), `normalize_country_code()`,
+  `validate_year_range()`, the background job store, and LRU registries for
+  expensive payloads.
+- `app/middleware.py`: a per-(client, method, path) sliding-window rate limit
+  on `/api/*`, a `with_analysis_slot` semaphore for heavy analyses (returns
+  429 when busy), and a strict Content-Security-Policy. If you add a new CDN
+  or inline script, update the CSP or it will be silently blocked.
+- Routes follow one shape: validate input → `make_error(msg, 400)` on bad
+  input → call a `src/` function → `jsonify`. Unexpected exceptions go through
+  `make_server_error()` which logs the traceback and returns a generic 500.
+- The frontend keeps a single `state` object, fetches `/api/countries` once
+  at startup, and decodes ISO-3 codes with `nameFor(code)`. All Plotly traces
+  take colours from the `PALETTE` constant (colour-blind safe); do not
+  introduce green/red.
+- Tabs load lazily: `runAnalysis()` loads only the open tab, `loadDashboard()`
+  runs the clustering/PCA/timeline/insights set once per window, and the Big
+  Picture (`loadBigPicture()` and the `renderStory*` functions at the end of
+  app.js) fetches its six endpoints in parallel. Every story card follows one
+  shape — kicker, a **finding** computed from the numbers, caption, chart,
+  the server's `takeaway`, its `caveat` — so findings never drift from data.
+- Navigation is grouped (The story · Countries · Blocs · Signals · Tools);
+  the year window drives the country/bloc/signal views, never the Big Picture.
 
-- `predict_votes(model, countries, issue)`: Predicts votes for given issue
-  - Returns: (vote_counts summary, detailed_predictions DataFrame)
+## Newsletter pipeline (read before touching it)
 
-- `save_model(model, filepath)`: Persists model to disk using joblib
-- `load_model(filepath)`: Loads saved model
+Composition lives in `src/newsletter.py` (`build_newsletter_edition`). The
+edition carries a deterministic `content_hash`; the publish gate compares it
+with the committed ledger and skips the email when nothing changed.
 
-**ML Pipeline**:
-1. OneHotEncoder for categorical features (country_identifier, issue)
-2. RandomForestClassifier (100 estimators, balanced class weights)
-3. Training on years <= train_yr_end
-4. Testing on years >= test_yr_start
+Contracts that regression tests enforce
+(`tests/test_publish_workflow_consistency.py`, `tests/test_newsletter_*.py`):
 
-### src/visualization.py
-**Purpose**: Matplotlib/seaborn visualization functions
+- **Compose once, reuse.** The workflow's Send step must load the archived
+  edition via `edition_from_dict` and must never call
+  `build_newsletter_edition` again. Recomposing let the emailed edition drift
+  from the gated one and re-sent the same issue weekly.
+- **`recent_year` is auto-picked**, never `df["year"].max()`.
+  `pick_recent_year` skips a sparse in-progress year
+  (`MIN_RECENT_RESOLUTIONS = 20`), so early in a session the edition anchors
+  on the last complete year and stays stable until the new year qualifies.
+  Editions therefore freeze during the off-season; that is by design.
+- **Resolve the newest `data-*` release by `publishedAt`, never
+  `createdAt`.** A release's `createdAt` is the date of the commit it points
+  at; weekly releases cut from an unchanged `main` all tie, and the old
+  `sort_by(.createdAt) | last` returned the oldest of them.
+- Rendering is separate from hashing: glossary, names and prose changes in
+  `newsletter_render.py` do not affect `content_hash`.
+- `NewsletterEdition.big_picture` ("The bigger picture" section) is whole-record
+  context computed from `story_analysis`; it is deliberately outside
+  `content_hash` and is optional, so old archives load with `{}`.
+- `NewsletterEdition.calendar` ("The week ahead") comes from `session_calendar`
+  and is forward-looking, so it stays outside `content_hash`. The ledger stores a
+  numeric `big_picture` snapshot with each published edition; the next edition for
+  the same focus and year reports each stat as up/down/unchanged since it.
+- `NewsletterEdition.this_week` ("This Week in the Assembly") holds the recorded
+  votes of the latest fortnight *in the data*. In season its rcids are added to
+  `content_hash` so a week with new votes always publishes; off-season the key
+  is absent and every hash is unchanged.
+- Topic phrases keep initialisms upper-case (`_ACRONYMS` in
+  `newsletter_voice.py`: HIV/AIDS, UNRWA, …); add there, not to `_PROPER_NOUNS`.
 
-**Key Functions**:
-- `plot_cluster_vote_distribution(clusters, df_filtered, n_cols=4)`: Bar charts per cluster
-- `plot_pca_projection(vote_matrix, cluster_labels, n_clusters)`: 2D PCA scatter plot
-- `plot_issue_salience(df_filtered, n_top_issues=10)`: Timeline of issue frequency
-- `plot_resolution_polarity(df_filtered, issue)`: Vote distribution for specific issue
-- `plot_entropy_distribution(entropy_scores, top_n=10)`: Most/least consistent voters
+Schedule: `refresh-data.yml` Monday 22:00 UTC pulls new votes via MARC-XML
+and, if rows changed, publishes a GitHub Release `data-YYYY-MM-DD` with the
+full CSV. `publish-newsletter.yml` Tuesday 09:00 UTC downloads the newest
+release, refuses data older than 90 days, composes the global edition plus a
+curated per-country matrix (`COUNTRY_EDITIONS`), gates on the ledger, emails
+via SMTP, then commits the ledger back to `main` as `atlas-bot`.
 
-**Visualization Standards**:
-- All functions return `Optional[plt.Figure]` (None on error)
-- Use constants from `config.py` for sizes, colors, alpha
-- Include error handling with logging
-- Call `plt.tight_layout()` before returning
-- Close figures after use in Streamlit: `plt.close(fig)`
+Consequence: **`main` moves without you.** Pull before pushing; ledger commits
+land most Tuesdays in season.
 
-### src/main.py
-**Purpose**: Core analysis logic and CLI entry point
+## Data
 
-**Key Components**:
-- `train_vote_predictor_async(df, batch_size=5000)`: Memory-efficient batch training with Logistic Regression
-  - Uses `CountVectorizer` for text features
-  - Trains incrementally using warm_start
-  - Monitors memory usage with `psutil`
+- Source CSV: `data/2025_03_31_ga_voting_corr1.csv` (override with
+  `UN_VOTING_DATA_PATH` in `.env`). Gitignored. Locally it is chmod 444 and
+  `scripts/refresh_data.py` never overwrites it without `--promote`.
+- Source columns: `undl_id, ms_code, ms_name, ms_vote, date, session, title,
+  subjects, resolution, agenda_title, undl_link` (plus the modern aliases
+  `rcid/country_code/vote` on merged files). `_apply_post_load_transformations`
+  in `data_processing.py` normalises both schemas.
+- Processed columns used everywhere: `rcid, country_identifier (ISO-3),
+  country_name, vote, date, year, issue, primary_topic`.
+- `VOTE_ENCODING`: Y=1, N=-1, A=0, X/blank=None (not voting / absent).
+- Country names: `country_name` is title-cased with
+  `country_display.title_case_name` (keeps "and/of/the" lowercase, fixes
+  `People'S`). Editorial short names come from `COUNTRY_DISPLAY_NAMES`
+  overrides; add an entry there when a long form reads badly.
+- `data/known_events.json` annotates time-series charts; a workflow
+  validates its shape on every change.
+- The parquet cache rebuilds itself when a required column is missing;
+  delete it to force a rebuild after schema changes.
 
-- `preprocess_for_similarity(df, start_year, end_year)`: Wrapper for vote matrix creation
-- `calculate_similarity(vote_matrix)`: Computes cosine similarity between countries
-- `perform_clustering(similarity_matrix, n_clusters, country_list)`: Hierarchical clustering
-  - Uses `AgglomerativeClustering` with precomputed distance
-
-- `load_un_votes_data(filepath)`: Custom CSV loader with validation
-- `main()`: Async main function for testing/batch processing
-
-**Async/Memory Management**:
-- Global `shutdown_event` for graceful termination
-- Garbage collection (`gc.collect()`) after memory-intensive operations
-- Progress logging every N batches
-- Numerical stability: `np.clip()` to prevent division by zero
-
-### src/app.py
-**Purpose**: Streamlit web interface
-
-**Structure**:
-1. **Session State Management**: Caches loaded data, issues, flags
-2. **Sidebar**: Data source info, analysis parameters (year ranges, n_clusters, split year, issue selection)
-3. **Tab 1 - Analysis & Visualization**:
-   - Clustering results with vote distribution bar charts
-   - PCA scatter plot showing voting similarity
-   - Issue salience timeline (line chart)
-   - Resolution polarity for selected issue
-   - Vote entropy distribution (most/least consistent voters)
-4. **Tab 2 - Prediction**:
-   - Model performance metrics (accuracy, precision, recall, F1)
-   - Simulated vote predictions for selected issue
-   - Detailed predictions per country
-
-**Streamlit Patterns**:
-- `st.session_state` for data persistence across reruns
-- `st.cache_data` (implicit via session_state) to avoid reloading
-- `st.columns()` for layout
-- `st.expander()` for collapsible details
-- `st.pyplot(fig)` + `plt.close(fig)` to display and cleanup matplotlib figures
-
-### tests/
-**Purpose**: Comprehensive test coverage using pytest
-
-**Test Organization**:
-- `conftest.py`: Shared fixtures and test configuration
-- `test_data_processing.py`: Tests for data loading, vote matrix, entropy, statistics
-- `test_model.py`: Tests for model training, prediction, save/load
-- `test_visualization.py`: Tests for plotting functions
-- `test_main.py`: Integration tests for main module
-
-**Testing Conventions**:
-- Use `pytest` framework
-- Test functions named `test_<functionality>()`
-- Use `tempfile` for temporary CSV files in tests
-- Test happy paths, edge cases, and error conditions
-- Assertions check return types, shapes, and values
-- Mock heavy dependencies where appropriate
-
-## Data Requirements
-
-### Expected CSV Format
-
-The application expects a CSV file at `data/2025_03_31_ga_voting_corr1.csv` with these columns:
-
-**Source Columns** (as they appear in CSV):
-- `undl_id`: UN document library ID (renamed to `rcid`)
-- `ms_code`: Member state code (renamed to `country_code`)
-- `ms_name`: Member state name (renamed to `country_name`)
-- `ms_vote`: Vote value - 'Y', 'N', 'A', ' ' (renamed to `vote`)
-- `date`: Vote date (YYYY-MM-DD format)
-- `session`: UN session number
-- `title`: Resolution title (renamed to `descr`)
-- `subjects`: Issue/subject classification (renamed to `issue`)
-- `resolution`: Resolution number
-- `agenda_title`: Agenda item title (renamed to `agenda`)
-- `undl_link`: Link to UN document
-
-**Processed Columns** (after transformation):
-- `rcid`: Resolution/vote ID (unique identifier)
-- `country_code`: Country code (e.g., 'US', 'UK')
-- `country_name`: Full country name
-- `country_identifier`: Derived from country_code (used for analysis)
-- `vote`: Standardized vote value ('Yes', 'No', 'Abstain', 'Absent', 'Other')
-- `date`: Parsed datetime
-- `year`: Extracted year (for filtering)
-- `issue`: Issue category/subject
-- `descr`: Resolution description
-
-### Vote Value Mapping
-
-```python
-# In CSV (ms_vote column)
-'Y' -> 'Yes'  (numeric: 1)
-'N' -> 'No'   (numeric: -1)
-'A' -> 'Abstain' (numeric: 0)
-' ' -> 'Absent' (numeric: 0)
-Other -> 'Other' (numeric: 0)
-```
-
-## Development Workflows
-
-### Initial Setup
+## Development
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd UN-Voting-Records
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-# Ensure data file exists
-mkdir -p data
-# Place 2025_03_31_ga_voting_corr1.csv in data/ directory
+cp .env.example .env
+python web_app.py                # http://localhost:5001  (PORT env overrides)
+gunicorn -w 2 -b 0.0.0.0:5001 web_app:app   # production shape (gunicorn not pinned)
+docker compose up -d             # http://localhost:8080
 ```
 
-### Running the Application
+The desktop-app preview config (`.claude/launch.json`, name `un-atlas`) runs
+`venv/bin/python web_app.py` on port 5001.
+
+### Testing
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Run Streamlit app
-streamlit run src/app.py
-
-# Or run main.py for CLI testing
-python src/main.py
+pytest                    # pytest.ini adds -m "not slow"
+pytest -m slow            # model-training / long-iteration tests
+flake8 app src web_app.py scripts   # CI lint gate; keep it at zero
 ```
 
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test file
-pytest tests/test_data_processing.py
-
-# Run specific test function
-pytest tests/test_data_processing.py::test_create_vote_matrix
-
-# Run with verbose output
-pytest -v
-
-# Run with print statements visible
-pytest -s
-```
-
-### Adding New Features
-
-#### 1. Adding a New Visualization
-
-**Steps**:
-1. Add configuration constants to `src/config.py` if needed
-2. Create function in `src/visualization.py`:
-   ```python
-   def plot_new_chart(data: pd.DataFrame, param: int) -> Optional[plt.Figure]:
-       """Description of what this plots."""
-       try:
-           fig, ax = plt.subplots(figsize=DEFAULT_FIG_SIZE)
-           # Plotting logic
-           plt.tight_layout()
-           return fig
-       except Exception as e:
-           logger.error(f"Error plotting new chart: {str(e)}")
-           return None
-   ```
-3. Add tests in `tests/test_visualization.py`
-4. Import and use in `src/app.py`:
-   ```python
-   from src.visualization import plot_new_chart
-
-   fig = plot_new_chart(data, param)
-   if fig:
-       st.pyplot(fig)
-       plt.close(fig)
-   ```
-
-#### 2. Adding a New Data Processing Function
-
-**Steps**:
-1. Add function to `src/data_processing.py`:
-   ```python
-   def process_new_feature(df: pd.DataFrame) -> pd.DataFrame:
-       """Description of processing."""
-       try:
-           logger.info("Processing new feature...")
-           # Processing logic
-           return processed_df
-       except Exception as e:
-           logger.error(f"Error in process_new_feature: {str(e)}")
-           return pd.DataFrame()
-   ```
-2. Add tests in `tests/test_data_processing.py`:
-   ```python
-   def test_process_new_feature():
-       sample_data = pd.DataFrame({...})
-       result = process_new_feature(sample_data)
-       assert isinstance(result, pd.DataFrame)
-       assert len(result) > 0
-       # More assertions
-   ```
-3. Import and use in main logic
-
-#### 3. Adding a New ML Model
-
-**Steps**:
-1. Add model function to `src/model.py`:
-   ```python
-   def train_new_model(df: pd.DataFrame, **params) -> Tuple[Pipeline, float]:
-       """Train new ML model."""
-       # Model training logic
-       return model_pipeline, accuracy
-   ```
-2. Add tests in `tests/test_model.py`
-3. Update `src/app.py` to include new model option
-
-## Code Style and Conventions
-
-### Python Style
-
-- **PEP 8 compliant**: Follow PEP 8 style guide
-- **Type hints**: Use type hints for function signatures
-  ```python
-  def function_name(param1: str, param2: int) -> Optional[pd.DataFrame]:
-  ```
-- **Docstrings**: Include docstrings for modules, classes, and functions
-  ```python
-  def example_function(data: pd.DataFrame) -> pd.DataFrame:
-      """
-      Brief description of function.
-
-      Args:
-          data (pd.DataFrame): Description of data parameter
-
-      Returns:
-          pd.DataFrame: Description of return value
-      """
-  ```
-- **Naming conventions**:
-  - Variables/functions: `snake_case`
-  - Constants: `UPPER_CASE`
-  - Classes: `PascalCase`
-  - Private/internal: `_leading_underscore`
-
-### Logging Practices
-
-```python
-# Module-level logger
-logger = logging.getLogger(__name__)
-
-# Usage patterns
-logger.info("Informational message about normal operation")
-logger.warning("Warning about potential issue")
-logger.error(f"Error occurred: {str(e)}")
-logger.debug("Detailed debug information")
-```
-
-### Error Handling Pattern
-
-```python
-def process_data(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Process data with error handling."""
-    try:
-        logger.info("Starting data processing...")
-
-        # Validation
-        if df is None or df.empty:
-            logger.warning("Empty dataframe provided")
-            return None
-
-        # Main logic
-        result = df.copy()
-        # ... processing steps ...
-
-        logger.info(f"Processing complete: {len(result)} rows")
-        return result
-
-    except KeyError as e:
-        logger.error(f"Missing column: {str(e)}")
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error in process_data: {str(e)}")
-        return None
-```
-
-### Import Organization
-
-```python
-# Standard library imports
-import os
-import sys
-import logging
-from typing import Tuple, Optional, List, Dict
-
-# Third-party imports
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from sklearn.ensemble import RandomForestClassifier
-
-# Local imports
-from src.config import VOTE_MAP, DEFAULT_N_CLUSTERS
-from src.data_processing import load_and_preprocess_data
-```
-
-## Common Patterns and Anti-Patterns
-
-### ✅ DO: Use Configuration Constants
-
-```python
-# Good
-from src.config import DEFAULT_N_CLUSTERS
-n_clusters = DEFAULT_N_CLUSTERS
-
-# Bad
-n_clusters = 10  # Magic number
-```
-
-### ✅ DO: Return Consistent Types
-
-```python
-# Good
-def get_data() -> Optional[pd.DataFrame]:
-    if error:
-        return None
-    return df
-
-# Bad
-def get_data():
-    if error:
-        return False  # Inconsistent type
-    return df
-```
-
-### ✅ DO: Log Before and After Operations
-
-```python
-logger.info("Starting clustering...")
-clusters = perform_clustering(data)
-logger.info(f"Clustering complete: {len(clusters)} clusters found")
-```
-
-### ✅ DO: Validate Inputs
-
-```python
-def process(df: pd.DataFrame):
-    if df is None or df.empty:
-        logger.warning("Empty dataframe provided")
-        return None
-    # Continue processing
-```
-
-### ❌ DON'T: Mix UI and Logic
-
-```python
-# Bad - Streamlit code in data processing
-def load_data():
-    st.write("Loading data...")  # Don't do this
-
-# Good - Separate concerns
-def load_data():
-    logger.info("Loading data...")
-    # Pure data loading logic
-```
-
-### ❌ DON'T: Hardcode Paths
-
-```python
-# Bad
-df = pd.read_csv("data/votes.csv")
-
-# Good
-from src.config import UN_VOTES_CSV_PATH
-df = pd.read_csv(UN_VOTES_CSV_PATH)
-```
-
-### ❌ DON'T: Ignore Errors Silently
-
-```python
-# Bad
-try:
-    result = risky_operation()
-except:
-    pass  # Silent failure
-
-# Good
-try:
-    result = risky_operation()
-except Exception as e:
-    logger.error(f"Operation failed: {str(e)}")
-    return None
-```
-
-## Testing Guidelines
-
-### Test Structure
-
-```python
-def test_feature_name():
-    """Test description."""
-    # Arrange - Set up test data
-    sample_data = pd.DataFrame({...})
-
-    # Act - Execute the function
-    result = function_under_test(sample_data)
-
-    # Assert - Verify results
-    assert isinstance(result, pd.DataFrame)
-    assert len(result) == expected_length
-    assert 'expected_column' in result.columns
-```
-
-### Test Coverage Requirements
-
-- **Happy path**: Test normal, expected behavior
-- **Edge cases**: Empty data, single row, boundary values
-- **Error conditions**: Invalid inputs, missing columns, type errors
-- **Integration**: Test component interactions
-
-### Using Fixtures (conftest.py)
-
-```python
-# tests/conftest.py
-@pytest.fixture
-def sample_vote_data():
-    """Fixture providing sample voting data."""
-    return pd.DataFrame({
-        'country_identifier': ['US', 'UK', 'FR'],
-        'vote': ['Y', 'N', 'A'],
-        'year': [2020, 2020, 2020]
-    })
-
-# tests/test_something.py
-def test_with_fixture(sample_vote_data):
-    result = process_votes(sample_vote_data)
-    assert len(result) == 3
-```
-
-## Performance Considerations
-
-### Memory Management
-
-- **Batch processing**: Used in `train_vote_predictor_async()` for large datasets
-- **Garbage collection**: Call `gc.collect()` after memory-intensive operations
-- **Sparse matrices**: Use scipy sparse matrices for large vote matrices
-- **DataFrame copying**: Use `.copy()` when modifying to avoid SettingWithCopyWarning
-
-### Optimization Tips
-
-1. **Filter early**: Filter DataFrames as early as possible
-   ```python
-   # Good
-   df_filtered = df[df['year'] >= 2020]
-   processed = expensive_operation(df_filtered)
-
-   # Bad
-   processed = expensive_operation(df)
-   filtered = processed[processed['year'] >= 2020]
-   ```
-
-2. **Use vectorized operations**: Prefer pandas/numpy over loops
-   ```python
-   # Good
-   df['vote_numeric'] = df['vote'].map(VOTE_MAP)
-
-   # Bad
-   for i, row in df.iterrows():
-       df.loc[i, 'vote_numeric'] = VOTE_MAP.get(row['vote'])
-   ```
-
-3. **Lazy loading**: Only load data when needed (used in Streamlit session_state)
-
-4. **Numerical stability**: Add epsilon to prevent division by zero
-   ```python
-   similarity_matrix = vote_matrix.replace(0, 1e-10)
-   ```
-
-## Troubleshooting Guide
-
-### Common Issues
-
-#### Issue: Data file not found
-**Symptoms**: FileNotFoundError when running app
-**Solution**:
-1. Ensure data directory exists: `mkdir -p data`
-2. Place CSV file in `data/2025_03_31_ga_voting_corr1.csv`
-3. Check file permissions: `ls -l data/`
-
-#### Issue: Missing columns error
-**Symptoms**: ValueError about missing columns
-**Solution**:
-1. Verify CSV has all required source columns (see Data Requirements section)
-2. Check column names match exactly (case-sensitive)
-3. Review `COLUMN_RENAME_MAP` in config.py
-
-#### Issue: Memory errors during model training
-**Symptoms**: MemoryError or system slowdown
-**Solution**:
-1. Reduce `batch_size` in `train_vote_predictor_async()`
-2. Filter data to smaller year range
-3. Use smaller sample of data for development
-
-#### Issue: Clustering produces unexpected results
-**Symptoms**: All countries in one cluster or too many singleton clusters
-**Solution**:
-1. Check year range has sufficient data
-2. Adjust `n_clusters` parameter
-3. Verify vote matrix has non-zero variance
-4. Check for NaN values in vote matrix
-
-#### Issue: Tests failing
-**Symptoms**: pytest failures
-**Solution**:
-1. Run `pytest -v` for detailed output
-2. Check if dependencies are installed: `pip install -r requirements.txt`
-3. Verify test data paths are correct
-4. Check for environment-specific issues (paths, data files)
-
-## Git Workflow
-
-### Branch Strategy
-
-- `main`: Production-ready code
-- `claude/claude-md-*`: AI assistant feature branches
-- Feature branches: Short-lived branches for specific features
-
-### Commit Guidelines
-
-- **Commit messages**: Descriptive, present tense
-  - Good: "Add entropy visualization to analysis tab"
-  - Bad: "fixed stuff"
-- **Commit size**: Atomic commits (one logical change per commit)
-- **Before committing**:
-  1. Run tests: `pytest`
-  2. Check code style
-  3. Update documentation if needed
-
-### Pull Request Process
-
-1. Create feature branch from main
-2. Make changes and commit
-3. Push to remote: `git push -u origin branch-name`
-4. Create pull request with description
-5. Ensure tests pass
-6. Request review if working with team
-
-## AI Assistant Guidelines
-
-### When Analyzing This Codebase
-
-1. **Start with config.py**: Understand all constants and settings
-2. **Read module docstrings**: Each file has clear purpose
-3. **Follow imports**: Trace function calls through modules
-4. **Check tests**: Tests show expected behavior and edge cases
-
-### When Making Changes
-
-1. **Preserve patterns**: Follow existing code style and conventions
-2. **Update tests**: Add/modify tests for any code changes
-3. **Update docs**: Update CLAUDE.md if architecture changes
-4. **Log appropriately**: Add logging for new operations
-5. **Handle errors**: Use try-except with informative logging
-
-### When Adding Features
-
-1. **Configuration first**: Add any constants to config.py
-2. **Core logic**: Implement in appropriate module (data_processing, model, visualization)
-3. **Tests**: Write tests before or alongside implementation
-4. **UI integration**: Add to app.py only after core logic is tested
-5. **Documentation**: Update this file if adding major functionality
-
-### Reference Locations for Common Tasks
-
-| Task | Primary File(s) | Key Functions/Sections |
-|------|----------------|----------------------|
-| Modify data loading | `data_processing.py` | `load_and_preprocess_data()` |
-| Change vote mapping | `config.py`, `data_processing.py` | `VOTE_MAP` constant |
-| Add clustering method | `main.py` | `perform_clustering()` |
-| Change ML algorithm | `model.py` | `train_vote_predictor()` |
-| Add chart type | `visualization.py` | Create new `plot_*()` function |
-| Modify UI layout | `app.py` | Streamlit sections, tabs |
-| Add configuration | `config.py` | Add constant |
-| Fix data issues | `data_processing.py` | Preprocessing functions |
-| Memory optimization | `main.py` | `train_vote_predictor_async()` |
-| Add tests | `tests/test_*.py` | Create `test_*()` function |
-
-### Quick Command Reference
-
-```bash
-# Development
-streamlit run src/app.py          # Run web app
-python src/main.py                # Run CLI version
-pytest                            # Run all tests
-pytest -v                         # Verbose test output
-pytest --cov=src                  # Test with coverage
-
-# Environment
-python -m venv venv               # Create virtual environment
-source venv/bin/activate          # Activate (Linux/Mac)
-venv\Scripts\activate             # Activate (Windows)
-pip install -r requirements.txt   # Install dependencies
-
-# Git
-git status                        # Check status
-git add .                         # Stage changes
-git commit -m "message"           # Commit
-git push -u origin branch-name    # Push to remote
-```
-
-## Additional Resources
-
-- **Streamlit Docs**: https://docs.streamlit.io/
-- **pandas Docs**: https://pandas.pydata.org/docs/
-- **scikit-learn Docs**: https://scikit-learn.org/stable/
-- **pytest Docs**: https://docs.pytest.org/
-- **matplotlib Docs**: https://matplotlib.org/stable/contents.html
-
-## Changelog
-
-### Current State (2025-11-17)
-- Modular architecture with separate modules for config, data, models, visualization
-- Streamlit web interface with two main tabs (Analysis & Prediction)
-- Machine learning vote prediction using Random Forest
-- Hierarchical clustering for voting bloc identification
-- Comprehensive test suite with pytest
-- Memory-efficient batch processing for large datasets
-- Configuration-driven design
-- Comprehensive logging throughout
-
----
-
-**Last Updated**: 2025-11-17
-**Maintained by**: AI Assistant (Claude)
-**Version**: 1.0
+- `tests/conftest.py` skips the data-dependent Flask tests automatically when
+  the real CSV is absent (CI never has it). Everything else runs on synthetic
+  fixtures.
+- `tests/test_data_fetcher_marc.py` and `tests/test_data_fetcher_merge.py`
+  hit the network and are excluded in CI.
+- `tests/test_publish_workflow_consistency.py` parses the workflow YAML and
+  needs `pyyaml` (declared in requirements.txt).
+
+### Conventions
+
+- Configuration and magic numbers live in `src/config.py`; env vars are read
+  there, not in routes.
+- Module-level `logger = logging.getLogger(__name__)`; log before and after
+  expensive steps. Never `print` in library code.
+- `src/` functions return `None` / empty frames on failure and log the
+  reason; routes translate that into 4xx/5xx JSON.
+- Type hints and docstrings on public functions. PEP 8, 88-column lines
+  (`.flake8` ignores E501/E203).
+- Commit messages: conventional prefixes (`feat(ui):`, `fix(newsletter):`,
+  `ci:`, `chore(ledger):`), present tense, explain the *why*.
+- Tests go beside the code they cover: `tests/test_<module>.py`.
+
+## Adding things
+
+- **New analysis**: function in `src/<topic>_analysis.py` (pure pandas, no
+  Flask) → tests → route in the matching blueprint under `app/routes/` → a
+  renderer in `static/js/app.js` and a card in `templates/index.html`. Use
+  `nameFor()` for any country code shown to a reader, `resolveCountryCode()`
+  for inputs (they accept a name or a code, backed by the `countryOptions`
+  datalist), and `xaxis/yaxis automargin` on Plotly layouts.
+- **New newsletter section**: extend `NewsletterEdition` and
+  `edition_to_dict` / `edition_from_dict` together (round-trip test in
+  `tests/test_newsletter_roundtrip.py`), then all three renderers.
+- **New workflow step that reads data**: copy the "Fetch UN voting CSV from
+  latest data release" step verbatim (publishedAt sort, filename
+  normalisation).
+
+## Definitions the Big Picture relies on
+
+- Recorded (roll-call) votes only; consensus adoptions are absent by construction.
+- "Taking a side" = voting Yes or No. Agreement = share of shared side-takings
+  that matched. Divided vote = winning side under 90% of Yes+No; contested =
+  under two-thirds (the Charter test, rarely failed, reported not charted).
+- Isolated vote = a country took a side with at most two other members.
+- Lineages: RUS continues SUN; DEU continues GER; CZE continues CSK; SRB
+  continues YUG/SCG (`regional_groups.LINEAGE`).
+- Landmark votes are looked up by resolution symbol; tallies come from the
+  data and are checked against the historical record in
+  `tests/test_story_analysis.py`.
+
+## Gotchas
+
+- The app loads the whole CSV into memory per process; two Gunicorn workers
+  mean two copies.
+- `numpy` 1.26 built from source on Python 3.13 emits spurious
+  `RuntimeWarning: divide by zero encountered in matmul` during PCA. The
+  output is finite; use 3.12 locally to silence it.
+- Plotly, axios and the map topojson are vendored under `static/vendor/`; the
+  CSP allows `script-src 'self'` only, so a CDN script tag needs a CSP change.
+- `/` renders `index.html` with `?v=<hash>` on app.js and style.css; edit the
+  files and reload, no manual cache-busting needed.
+- `docs/*.md` predate the Flask rewrite in places; treat them as history.

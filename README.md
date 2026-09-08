@@ -38,7 +38,40 @@ docker-compose up -d
 
 ## Features
 
-### 🏁 Country Profile (default view)
+### 🌍 The Big Picture (landing view)
+
+Six readings of the whole roll-call record, 1946 to the last complete year, each with a
+headline finding computed from the numbers, the chart, a one-sentence takeaway and its caveat:
+
+1. **The agenda** — share of recorded votes by theme (Israel & Palestine, decolonization,
+   nuclear weapons & disarmament, human rights, development, UN institutions, peace & security).
+2. **The divisions** — how often two members that took a side voted the same way, and the share
+   of votes with at least one member in ten on the losing side; annotated with known events.
+3. **A power and the world** — how often the room sided with a P5 member, and how many votes it
+   cast with two or fewer companions (Russia's line continues the USSR's).
+4. **Between Washington and Beijing** — every member's agreement with the US and with China,
+   coloured by UN regional group, with arrows for the biggest moves since a decade earlier.
+5. **The landmark votes** — fifteen curated resolutions from the 1947 partition plan to the 2025
+   New York Declaration, each with its tally and a world map of how every country voted.
+6. **The same vote, year after year** — nine recurring resolutions as longitudinal probes: the Cuba
+   embargo, glorification of Nazism, UNRWA, Palestinian self-determination, the Golan, human rights
+   in Iran, unilateral sanctions, the nuclear ban treaty, and an arms race in outer space.
+
+Every country profile opens with **the long view**: that member's agreement with the US, Russia and
+China, and its winning-side rate, for every year on record. Landmark maps break the vote down by UN
+regional group. In season, the newsletter leads with **This week in the Assembly**: the recorded
+votes of the latest fortnight in the data, with the dissenters named. Every edition also carries
+**the week ahead** (`src/session_calendar.py`): where the session stands and which recurring
+resolutions are due, with their typical date measured from the record; once an edition has been
+published, the next one reports each big-picture number as up, down or unchanged since it. A
+**Share this country** button copies a deep link to any profile.
+
+Definitions are deliberately simple and stated on the page: only roll-call votes are recorded
+(consensus adoptions never appear); "taking a side" means voting Yes or No, as when the
+Assembly counts a majority. Logic lives in `src/story_analysis.py`; regional groups in
+`src/regional_groups.py`.
+
+### 🏁 Country Profile
 
 - Top 5 allies and top 5 opponents in the selected window, each tagged with a **percentile chip** (`p92` = "this alignment is higher than 92% of all country pairs this window") so every number carries its own baseline
 - **Bloc-alignment strip** — three headline percentages (Western / Eastern / Non-aligned) make two profiles immediately comparable at a glance
@@ -235,8 +268,9 @@ UN General Assembly voting is **highly seasonal**:
 
 **The dedup gate** (`.github/workflows/publish-newsletter.yml`, `Skip-if-unchanged gate` step):
 1. After composing the edition, computes its `content_hash` — a SHA-256 of the drift list, coalition tier-jumpers, and spotlight rcid. The hash is **deterministic**: same data + same recent_year + same window → identical hash.
-2. Walks the archive backwards, finds the most recent edition with the same `country_focus`.
+2. Looks up the most recent *published* edition with the same `country_focus` in the committed ledger (`data/published_ledger.json`), which the workflow commits back to `main` as `atlas-bot` after every send.
 3. If the hashes match, the publish step is skipped with a `::warning::` annotation. The archive is still written so we can see "we composed an identical edition this week" in the history.
+4. After six weeks without a published edition for that focus, the skip also raises a `Newsletter quiet for N weeks` warning on the run — normal in the off-season, but the same symptom a broken refresh produces, so check it when the UN is in session.
 
 This means you can leave the weekly cron running year-round without manual intervention — it'll publish only when something actually changed.
 
@@ -276,7 +310,7 @@ source if the merged frame is smaller than the input** — this is the
 bug that destroyed 880k rows in an earlier draft, now caught by 4
 regression tests.
 
-**Refresh in CI:** [.github/workflows/refresh-data.yml](.github/workflows/refresh-data.yml) is wired as a `workflow_dispatch` template. To run it on a schedule, plug in your data-storage backend (S3 / GCS / HF dataset / Git LFS — the raw CSV is gitignored) at the marked spots and uncomment the cron line. The shape of the workflow is correct; only the download/upload steps need your storage credentials.
+**Refresh in CI:** [.github/workflows/refresh-data.yml](.github/workflows/refresh-data.yml) runs every Monday 22:00 UTC. It downloads the newest `data-*` GitHub Release (resolved by publish date — never by `createdAt`, which GitHub sets to the *commit* date, so weekly releases from an unchanged `main` all tie), pulls new votes via MARC-XML, and, if rows changed, publishes a new `data-YYYY-MM-DD` release carrying the full CSV. It keeps the newest four data releases and deletes older ones. The publish workflow reads the same newest release.
 
 **Cache rebuild:** the parquet cache (`data/*.parquet`) auto-rebuilds whenever it's missing a required column. Delete it by hand to force a full rebuild on any schema change.
 
@@ -367,6 +401,25 @@ weight = 0.95^(current_year − vote_year)
 | `/api/methods`                         | GET      | Methods + caveats metadata                  |
 
 ---
+
+### Big Picture endpoints
+
+| Endpoint | Returns |
+|---|---|
+| `GET /api/story/agenda` | votes per year by theme, decade shares, takeaway |
+| `GET /api/story/division` | per-year agreement, divided share, contested share |
+| `GET /api/story/alignment?anchor=USA` | per-year agreement with a P5 member + isolated votes |
+| `GET /api/story/scatter?start=&end=&base_start=&base_end=` | per-member agreement with the US and China, with a baseline |
+| `GET /api/story/landmarks` | the curated landmark votes with tallies |
+| `GET /api/story/resolution/<rcid>/map` | every member's vote on one resolution |
+| `GET /api/story/recurring/<key>` | one recurring resolution's tallies per year, plus the catalogue |
+| `GET /api/story/country/<code>` | a member's agreement with the US, Russia and China per year, and its winning-side rate |
+| `GET /api/story/this-week?days=14` | the recorded votes of the latest fortnight in the data, dissenters named |
+| `GET /api/story/calendar?as_of=YYYY-MM-DD` | the session phase on that date and the recurring votes due within five weeks |
+
+The newsletter route `GET /api/newsletter/weekly` also accepts `edition_date=YYYY-MM-DD`, which is what decides whether the in-season "This week in the Assembly" panel appears (latest recorded vote within a fortnight of that date).
+
+All whole-record; cached per process.
 
 ## Testing
 
