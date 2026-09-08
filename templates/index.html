@@ -116,6 +116,7 @@
       <div class="tab-group">
         <span class="tab-group__label">The story</span>
         <button class="tab-link active" data-tab="story" role="tab" id="storyTab" aria-controls="story" aria-selected="true" tabindex="0"><i class="fas fa-book-open"></i> Big Picture</button>
+        <button class="tab-link" data-tab="lenses" role="tab" id="lensesTab" aria-controls="lenses" aria-selected="false" tabindex="-1"><i class="fas fa-glasses"></i> Through which lens</button>
         <button class="tab-link" data-tab="newsletter" role="tab" id="newsletterTab" aria-controls="newsletter" aria-selected="false" tabindex="-1"><i class="fas fa-newspaper"></i> Weekly briefing</button>
       </div>
       <div class="tab-group">
@@ -265,6 +266,105 @@
         <p class="story-method">
           <strong>How to read these numbers.</strong> Only roll-call votes are recorded; resolutions adopted by consensus never appear, so every chart describes the contested end of the Assembly's work. "Taking a side" means voting Yes or No, as it does when the Assembly counts a majority. Themes are assigned from each resolution's title and UN subject headings; regional groups are the United Nations' own.
         </p>
+      </section>
+
+      <section id="lenses" class="tab-pane" role="tabpanel" aria-labelledby="lensesTab" hidden>
+        <p class="story-standfirst">
+          Each theory of international relations makes claims about what organises the Assembly's votes.
+          Here each claim is a measurement, run over every complete year since 1946: whose fingerprint is on
+          the record, and when. The partitions and formulas are stated at the bottom; every one is a proxy.
+        </p>
+
+        <article class="story-card" id="lensOrganise">
+          <header class="story-head">
+            <span class="story-kicker">01 · What organises the room?</span>
+            <h3 class="story-finding" data-role="finding">Which map of the world predicts the votes best?</h3>
+            <p class="story-caption">Three ways to partition the membership, each the home ground of a theory: treaty alliances (realism), income tiers (world-systems), the UN's regional groups (constructivism). Lines show how much of each year's voting variance each partition explains beyond chance.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">Explained variance between groups, pooled over the year's recorded votes, minus what the same partition explains with its labels shuffled. These three lines are directly comparable.</p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensHomeTurf">
+          <header class="story-head">
+            <span class="story-kicker">02 · On home ground</span>
+            <h3 class="story-finding" data-role="finding">Each theory where it should be strongest</h3>
+            <p class="story-caption">Alliances on security items, income tiers on economic items, regional groups on human-rights items. A theory that fails on its own ground has little claim on the rest.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensFingerprints">
+          <header class="story-head">
+            <span class="story-kicker">03 · Whose fingerprint, when?</span>
+            <h3 class="story-finding" data-role="finding">Five lenses, one record</h3>
+            <p class="story-caption">Each lens's index averages its components after scaling each to its own 1946–today range, so a line reads "how pronounced is this lens's signature this year compared with its other years". Lines are not comparable in absolute terms; the era strip below names the lens most pronounced in each decade.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <div class="era-strip" data-role="eras"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat" data-role="caveat"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensEras">
+          <header class="story-head">
+            <span class="story-kicker">04 · The eras, by deed</span>
+            <h3 class="story-finding">What the record shows decade by decade</h3>
+            <p class="story-caption">For each decade: the most pronounced lens, the partition that explained the most voting, how often members agreed, and what the agenda was about.</p>
+          </header>
+          <div class="viz-body" data-role="table"></div>
+        </article>
+
+        <div class="viz-grid">
+          <article class="story-card" id="lensCascades">
+            <header class="story-head">
+              <span class="story-kicker">05 · Norm cascades</span>
+              <h3 class="story-finding">Support for recurring normative resolutions</h3>
+              <p class="story-caption">Constructivism's signature: a norm gains adherents year after year. Share of members voting in favour.</p>
+            </header>
+            <div class="plot-host" data-role="chart"></div>
+          </article>
+          <article class="story-card" id="lensNorthSouth">
+            <header class="story-head">
+              <span class="story-kicker">06 · North against South</span>
+              <h3 class="story-finding">The economic resolutions that split the tiers</h3>
+              <p class="story-caption">World-systems' signature: a core that votes no, a periphery that votes yes, year after year. Votes for, against and abstaining.</p>
+              <div class="story-controls">
+                <label for="lensMarker">Resolution</label>
+                <select id="lensMarker"></select>
+              </div>
+            </header>
+            <div class="plot-host" data-role="chart"></div>
+          </article>
+        </div>
+
+        <article class="story-card" id="lensCohesion">
+          <header class="story-head">
+            <span class="story-kicker">07 · Bloc discipline</span>
+            <h3 class="story-finding" data-role="finding">How tightly each bloc votes together</h3>
+            <p class="story-caption">Within-group agreement: the share of shared side-takings that matched. Perfect discipline is 100%.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensMethods">
+          <header class="story-head">
+            <span class="story-kicker">Methods</span>
+            <h3 class="story-finding">The proxies, stated</h3>
+          </header>
+          <div class="viz-body" data-role="methods"></div>
+        </article>
       </section>
 
       <section id="profile" class="tab-pane" role="tabpanel" aria-labelledby="profileTab" hidden>

@@ -76,6 +76,27 @@ Definitions are deliberately simple and stated on the page: only roll-call votes
 Assembly counts a majority. Logic lives in `src/story_analysis.py`; regional groups in
 `src/regional_groups.py`.
 
+### 🔍 Through which lens?
+
+A second story tab reads the record through competing theories of international relations. Each
+theory is treated as a set of claims about what organises the Assembly's votes, and each claim as a
+measurement run over every complete year since 1946:
+
+| Lens | Partition it predicts | Components of its fingerprint |
+|---|---|---|
+| Realism | treaty alliances (NATO and US bilateral treaties; the Warsaw Pact and CSTO) | alliances' explained variance, on all items and on security items; camp cohesion; security agenda share |
+| Liberalism | — | agreement across members; share of lopsided votes; institution-building agenda share |
+| World-systems | income tiers (World Bank: core, semi-periphery, periphery) | tiers' explained variance, on all and on economic items; core cohesion; economic agenda share |
+| Constructivism | the UN's regional groups | groups' explained variance, on all and on rights items; normative agenda share; support for norm-cascade resolutions |
+| Feminist IR | states with a declared feminist foreign policy | gender agenda share; support on gender votes; the cohort's cohesion and explained variance |
+
+The core measurement is explained variance between groups, pooled over a year's recorded votes,
+minus a permutation baseline. The three partitions are directly comparable ("what organises the
+room"); the five indices are each scaled to their own range and read as "how pronounced is this
+lens's signature this year", with the most pronounced lens named per decade. Proxies and caveats
+are printed on the page. Logic: `src/lenses.py`; partitions: `src/lenses_partitions.py`; the
+World Bank classification: `data/world_bank_income_groups.csv` (CC BY 4.0).
+
 ### 🏁 Country Profile
 
 - Top 5 allies and top 5 opponents in the selected window, each tagged with a **percentile chip** (`p92` = "this alignment is higher than 92% of all country pairs this window") so every number carries its own baseline
@@ -440,6 +461,7 @@ weight = 0.95^(current_year − vote_year)
 | `GET /api/story/this-week?days=14` | the recorded votes of the latest fortnight in the data, dissenters named |
 | `GET /api/story/calendar?as_of=YYYY-MM-DD` | the session phase, the exact opening date, votes just landed, and the recurring votes due within five weeks |
 | `GET /api/story/emergency` | every recorded vote of every emergency special session, grouped and in order |
+| `GET /api/story/lenses` | the record through five IR theories: explained variance by partition, cohesion, agenda shares, norm cascades, eras |
 
 The newsletter route `GET /api/newsletter/weekly` also accepts `edition_date=YYYY-MM-DD`, which is what decides whether the in-season "This week in the Assembly" panel appears (latest recorded vote within a fortnight of that date).
 

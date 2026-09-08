@@ -1478,3 +1478,40 @@ p {
 }
 .story-calendar:empty { display: none; }
 .story-calendar strong { color: var(--ink-900); }
+
+/* ── Through which lens ─────────────────────────────────────────────────── */
+.story-standfirst {
+  margin: 4px 4px 18px;
+  font-family: var(--serif);
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--ink-700);
+  max-width: 90ch;
+}
+.era-strip {
+  display: flex;
+  gap: 4px;
+  margin: 4px 22px 10px;
+}
+.era-strip__cell {
+  flex: 1;
+  border-radius: 6px;
+  padding: 6px 4px 5px;
+  text-align: center;
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+.era-strip__cell b { display: block; font-size: 0.8rem; }
+.era-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.era-table th, .era-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--paper-200); vertical-align: top; }
+.era-table th { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500); }
+.era-table td.decade { font-family: var(--serif); font-size: 1.05rem; white-space: nowrap; }
+.era-table .lens-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; color: #fff; font-size: 0.78rem; font-weight: 700; }
+.methods dl { margin: 0; display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; font-size: 0.9rem; }
+.methods dt { font-weight: 700; color: var(--ink-900); }
+.methods dd { margin: 0; color: var(--ink-700); line-height: 1.5; max-width: 90ch; }
+.methods ul { margin: 12px 0 0; padding-left: 18px; color: var(--ink-500); font-size: 0.85rem; line-height: 1.5; }
+@media (max-width: 740px) { .methods dl { grid-template-columns: 1fr; } .era-strip { margin-left: 10px; margin-right: 10px; } }
+.era-strip__cell small { display: block; opacity: 0.85; font-size: 0.66rem; }
+.lens-close { color: var(--ink-500); font-size: 0.8rem; white-space: nowrap; }

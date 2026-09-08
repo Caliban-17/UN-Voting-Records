@@ -44,12 +44,16 @@ app/
     jobs.py                /api/jobs/{<id>,train-model,soft-power-trends,network-animation}
     story.py               /api/story/{agenda,division,alignment,scatter,landmarks,
                            resolution/<rcid>/map,recurring/<key>,country/<code>,
-                           this-week,calendar,emergency}  (whole-record, cached)
+                           this-week,calendar,emergency,lenses}  (whole-record, cached)
 src/                       Analysis + newsletter library (no Flask imports here)
   config.py                Paths, VOTE_ENCODING, column maps, env-driven settings
   story_analysis.py        The Big Picture: themes, division, alignment, scatter, landmarks
   session_calendar.py      The Assembly's year: phases, the computed opening date (rule 1),
                            typical dates of recurring votes, votes just landed
+  lenses.py                Through which lens: explained variance by partition, cohesion,
+                           agenda shares, norm cascades, per-lens indices, eras
+  lenses_partitions.py     Curated year-aware partitions: alliance camps, income tiers
+                           (World Bank CSV in data/), feminist-foreign-policy cohort
   regional_groups.py       UN regional groups by ISO-3 (+ historical states, lineages)
   data_processing.py       CSV/parquet loading, schema normalisation, vote matrix, entropy
   country_display.py       ISO-3 -> editorial names ("Iran", "North Korea") + title_case_name()

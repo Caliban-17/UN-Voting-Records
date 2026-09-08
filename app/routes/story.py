@@ -197,3 +197,17 @@ def story_emergency():
         return jsonify({"sessions": emergency_sessions(get_df())})
     except Exception as exc:
         return make_server_error("Story emergency error", exc)
+
+
+@bp.route("/lenses", methods=["GET"])
+@cached_api
+def story_lenses():
+    """The record read through competing IR theories, year by year."""
+    if get_df() is None:
+        return make_error("Data not loaded", 500)
+    try:
+        from src.lenses import lens_timeline
+
+        return jsonify(lens_timeline(get_df()))
+    except Exception as exc:
+        return make_server_error("Story lenses error", exc)

@@ -173,6 +173,7 @@ function applyHashState() {
   const threshold = hashNumber("threshold", state.similarityThreshold);
   const allowedTabs = new Set([
     "story",
+    "lenses",
     "profile",
     "map",
     "pivotality",
@@ -2032,6 +2033,9 @@ async function runAnalysis() {
     if (state.activeTab === "story") {
       await loadBigPicture();
     }
+    if (state.activeTab === "lenses") {
+      await loadLenses();
+    }
     if (state.activeTab === "profile") {
       await loadCountryProfile();
     }
@@ -2448,6 +2452,9 @@ function activateTab(tabId, options = {}) {
 
   if (!skipLoad && tabId === "story") {
     loadBigPicture();
+  }
+  if (!skipLoad && tabId === "lenses") {
+    loadLenses();
   }
   if (!skipLoad && tabId === "dashboard") {
     loadDashboard();
@@ -3516,4 +3523,302 @@ function renderEmergencySession(number) {
     `ES-${session.number}, ${session.label}: ${session.count} recorded vote${session.count === 1 ? "" : "s"}; the latest passed ${latest.yes} to ${latest.no} on ${latest.date}`,
   );
   setStoryText("storyEmergency", "takeaway", session.takeaway);
+}
+
+
+// ── Through which lens? (competing IR theories, year by year) ───────────────
+
+const LENS = { loaded: false, loading: null, data: null };
+const LENS_COLORS = {
+  realism: "#0b2238",
+  liberalism: "#0072b2",
+  world_systems: "#d55e00",
+  constructivism: "#009e73",
+  feminism: "#cc79a7",
+};
+const PARTITION_LABELS = {
+  alliance: "Treaty alliances (realism)",
+  tier: "Income tiers (world-systems)",
+  region: "Regional groups (constructivism)",
+};
+const PARTITION_COLORS = { alliance: "#0b2238", tier: "#d55e00", region: "#009e73" };
+
+function pctOrNull(v) {
+  return v == null ? null : v * 100;
+}
+
+// Sentences quote the last full year; a partial current year still plots.
+function lensAnchorIndex(d) {
+  const i = d.last_full_year ? d.years.indexOf(d.last_full_year) : -1;
+  return i >= 0 ? i : d.years.length - 1;
+}
+
+async function loadLenses(force = false) {
+  if (LENS.loading) return LENS.loading;
+  if (LENS.loaded && !force) return null;
+  LENS.loading = (async () => {
+    try {
+      requirePlotly();
+      ["lensOrganise", "lensHomeTurf", "lensFingerprints", "lensCascades", "lensNorthSouth", "lensCohesion"].forEach((id) => {
+        const host = storyEl(id, "chart");
+        if (host) setLoading(host, "Reading the whole record through five lenses… (the first load takes a moment)");
+      });
+      const res = await axios.get("/api/story/lenses");
+      LENS.data = res.data;
+      renderLensOrganise(res.data);
+      renderLensHomeTurf(res.data);
+      renderLensFingerprints(res.data);
+      renderLensEras(res.data);
+      renderLensCascades(res.data);
+      renderLensNorthSouth(res.data);
+      renderLensCohesion(res.data);
+      renderLensMethods(res.data);
+      LENS.loaded = true;
+    } catch (error) {
+      const host = storyEl("lensOrganise", "chart");
+      if (host) showErrorElement(host, getErrorMessage(error));
+      console.error("Lenses failed", error);
+    } finally {
+      LENS.loading = null;
+    }
+  })();
+  return LENS.loading;
+}
+
+function partitionLine(d, scheme, source, dash) {
+  const rows = source[scheme];
+  return {
+    type: "scatter", mode: "lines", name: PARTITION_LABELS[scheme], connectgaps: false,
+    x: d.years, y: rows.map((p) => pctOrNull(p.adjusted)),
+    line: { color: PARTITION_COLORS[scheme], width: 2.2, dash },
+    hovertemplate: `${PARTITION_LABELS[scheme]}: %{y:.0f}%<extra></extra>`,
+  };
+}
+
+function decadeMeans(years, values) {
+  const out = {};
+  years.forEach((y, i) => {
+    const d = Math.floor(y / 10) * 10;
+    if (values[i] == null) return;
+    (out[d] = out[d] || []).push(values[i]);
+  });
+  return Object.fromEntries(Object.entries(out).map(([d, v]) => [d, v.reduce((a, b) => a + b, 0) / v.length]));
+}
+
+function renderLensOrganise(d) {
+  const host = storyEl("lensOrganise", "chart");
+  clearNode(host);
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  Plotly.newPlot(host, [
+    partitionLine(d, "region", d.partitions),
+    partitionLine(d, "alliance", d.partitions),
+    partitionLine(d, "tier", d.partitions),
+    ev.trace,
+  ], storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Voting variance explained beyond chance", ticksuffix: "%", range: [0, 100] },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+
+  const means = {};
+  ["region", "alliance", "tier"].forEach((s) => {
+    means[s] = decadeMeans(d.years, d.partitions[s].map((p) => p.adjusted));
+  });
+  const decades = Object.keys(means.region).sort();
+  const regionWins = decades.filter((dec) => means.region[dec] >= (means.alliance[dec] || 0) && means.region[dec] >= (means.tier[dec] || 0)).length;
+  const alliancePeak = d.years.reduce((best, y, i) => {
+    const v = d.partitions.alliance[i].adjusted;
+    return v != null && v > best.v ? { y, v } : best;
+  }, { y: null, v: -1 });
+  const last = lensAnchorIndex(d);
+  setStoryText(
+    "lensOrganise", "finding",
+    regionWins === decades.length
+      ? `The UN's own regional groups have predicted votes better than treaty alliances or wealth in every decade`
+      : `The UN's regional groups predicted votes better than alliances or wealth in ${regionWins} of ${decades.length} decades`,
+  );
+  setStoryText(
+    "lensOrganise", "takeaway",
+    `Treaty alliances explained the most in ${alliancePeak.y} (${(alliancePeak.v * 100).toFixed(0)}% beyond chance) and ${(d.partitions.alliance[last].adjusted * 100).toFixed(0)}% in ${d.years[last]}; ` +
+    `regional groups ${(d.partitions.region[last].adjusted * 100).toFixed(0)}% and income tiers ${(d.partitions.tier[last].adjusted * 100).toFixed(0)}% in ${d.years[last]}.`,
+  );
+}
+
+function renderLensHomeTurf(d) {
+  const host = storyEl("lensHomeTurf", "chart");
+  clearNode(host);
+  const label = { alliance: "Alliances on security items", tier: "Income tiers on economic items", region: "Regional groups on rights items" };
+  const smooth = d.home_turf_smoothed || {};
+  const traces = ["region", "alliance", "tier"].map((s) => ({
+    type: "scatter", mode: "lines", name: label[s], connectgaps: false,
+    x: d.years, y: (smooth[s] || d.home_turf[s].map((p) => p.adjusted)).map(pctOrNull),
+    customdata: d.home_turf[s].map((p) => (p.adjusted == null ? "–" : (p.adjusted * 100).toFixed(0) + "%")),
+    line: { color: PARTITION_COLORS[s], width: 2, shape: "spline", smoothing: 0.6 },
+    hovertemplate: `${label[s]}: %{y:.0f}% (this year alone %{customdata})<extra></extra>`,
+  }));
+  Plotly.newPlot(host, traces, storyLayout({
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Variance explained beyond chance, 5-year average", ticksuffix: "%", range: [0, 100] },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+  const peak = (s) => d.years.reduce((best, y, i) => {
+    const v = d.home_turf[s][i].adjusted;
+    return v != null && v > best.v ? { y, v } : best;
+  }, { y: null, v: -1 });
+  const a = peak("alliance"), t = peak("tier"), r = peak("region");
+  setStoryText("lensHomeTurf", "finding", `On security items alliances explained up to ${(a.v * 100).toFixed(0)}% of the vote (${a.y}); on economic items income tiers up to ${(t.v * 100).toFixed(0)}% (${t.y}); on rights items regional groups up to ${(r.v * 100).toFixed(0)}% (${r.y})`);
+  setStoryText("lensHomeTurf", "takeaway", "Peaks are single years; lines average five. Gaps are stretches with fewer than five recorded votes on the theme.");
+}
+
+function renderLensFingerprints(d) {
+  const host = storyEl("lensFingerprints", "chart");
+  clearNode(host);
+  const smooth = d.indices_smoothed || d.indices;
+  const traces = d.lenses.map((l) => ({
+    type: "scatter", mode: "lines", name: l.label, connectgaps: false,
+    x: d.years, y: smooth[l.key].map((v) => (v == null ? null : v * 100)),
+    customdata: d.indices[l.key].map((v) => (v == null ? "–" : (v * 100).toFixed(0))),
+    line: { color: LENS_COLORS[l.key], width: l.key === "feminism" ? 1.4 : 2.2, dash: l.key === "feminism" ? "dot" : "solid", shape: "spline", smoothing: 0.6 },
+    hovertemplate: `${l.label}: %{y:.0f} (this year alone %{customdata})<extra></extra>`,
+  }));
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Fingerprint index, 5-year average (0–100)", range: [0, 104] },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+
+  const strip = storyEl("lensFingerprints", "eras");
+  clearNode(strip);
+  d.eras.forEach((e) => {
+    const cell = document.createElement("div");
+    cell.className = "era-strip__cell";
+    cell.style.background = LENS_COLORS[e.top] || "#999";
+    cell.innerHTML = `<b>${e.label}</b>${storyEscape(e.top_label)}${e.close ? `<small> · ${storyEscape(e.close_label)} close</small>` : ""}`;
+    cell.title = e.ranking.map((r) => `${r.label} ${(r.score * 100).toFixed(0)}`).join(" · ");
+    strip.appendChild(cell);
+  });
+  const counts = {};
+  d.eras.forEach((e) => { counts[e.top_label] = (counts[e.top_label] || 0) + 1; });
+  const ranked = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const latest = d.eras[d.eras.length - 1];
+  setStoryText("lensFingerprints", "finding", `${ranked[0][0]} has the most pronounced fingerprint in ${ranked[0][1]} of ${d.eras.length} decades; the ${latest.label} read as ${latest.top_label.toLowerCase()}`);
+  setStoryText("lensFingerprints", "takeaway", `Ranking in the ${latest.label}: ` + latest.ranking.map((r) => `${r.label} ${(r.score * 100).toFixed(0)}`).join(", ") + ".");
+  setStoryText("lensFingerprints", "caveat", d.caveats[2]);
+}
+
+function renderLensEras(d) {
+  const host = storyEl("lensEras", "table");
+  clearNode(host);
+  const rows = d.eras.map((e) => {
+    const chip = `<span class="lens-chip" style="background:${LENS_COLORS[e.top] || "#999"}">${storyEscape(e.top_label)}</span>` + (e.close ? ` <small class="lens-close">${storyEscape(e.close_label)} close behind</small>` : "");
+    const facts = e.facts.map((f) => storyEscape(f.charAt(0).toUpperCase() + f.slice(1))).join(". ");
+    return `<tr><td class="decade">${e.label}</td><td>${chip}</td><td>${facts}.</td></tr>`;
+  }).join("");
+  host.innerHTML = `<table class="era-table"><thead><tr><th>Decade</th><th>Most pronounced lens</th><th>By deed</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderLensCascades(d) {
+  const host = storyEl("lensCascades", "chart");
+  clearNode(host);
+  const palette = ["#009e73", "#0072b2", "#e69f00", "#cc79a7", "#56b4e9"];
+  const traces = d.cascades.map((c, i) => ({
+    type: "scatter", mode: "lines+markers", name: c.label,
+    x: c.series.map((p) => p.year), y: c.series.map((p) => p.support * 100),
+    line: { color: palette[i % palette.length], width: 2 }, marker: { size: 5 },
+    hovertemplate: `${c.label}: %{y:.0f}% in favour<extra>%{x}</extra>`,
+  }));
+  Plotly.newPlot(host, traces, storyLayout({
+    xaxis: { dtick: 5 },
+    yaxis: { title: "Members in favour", ticksuffix: "%", range: [0, 104] },
+    legend: { y: -0.2, x: 0 },
+    margin: { b: 90 },
+  }), PLOT_CONFIG);
+}
+
+function renderLensNorthSouth(d) {
+  const select = document.getElementById("lensMarker");
+  if (select && select.options.length !== d.north_south_markers.length) {
+    clearNode(select);
+    d.north_south_markers.forEach((m) => {
+      const opt = document.createElement("option");
+      opt.value = m.key;
+      opt.textContent = m.label;
+      select.appendChild(opt);
+    });
+    select.addEventListener("change", () => renderLensNorthSouth(LENS.data));
+  }
+  const key = select && select.value ? select.value : d.north_south_markers[0]?.key;
+  const marker = d.north_south_markers.find((m) => m.key === key) || d.north_south_markers[0];
+  const host = storyEl("lensNorthSouth", "chart");
+  clearNode(host);
+  if (!marker) return;
+  const years = marker.series.map((s) => s.year);
+  const bar = (k, name, color) => ({
+    type: "bar", x: years, y: marker.series.map((s) => s[k]), name, marker: { color },
+    hovertemplate: `${name}: %{y}<extra>%{x}</extra>`,
+  });
+  Plotly.newPlot(host, [bar("yes", "For", "#0072b2"), bar("abstain", "Abstained", "#d38b2a"), bar("no", "Against", "#d55e00")], storyLayout({
+    barmode: "stack", bargap: 0.25,
+    xaxis: { dtick: 5 },
+    yaxis: { title: "members" },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+}
+
+function renderLensCohesion(d) {
+  const host = storyEl("lensCohesion", "chart");
+  clearNode(host);
+  const spec = [
+    ["soviet_led", "Soviet / Russian-led camp", "#d55e00", "solid"],
+    ["us_led", "US-led camp", "#0b2238", "solid"],
+    ["core", "Core (high income)", "#8a6d00", "dot"],
+    ["periphery", "Periphery (low income)", "#e69f00", "dot"],
+    ["regions", "Regional groups (average)", "#009e73", "dash"],
+  ];
+  const traces = spec.map(([k, name, color, dash]) => ({
+    type: "scatter", mode: "lines", name, connectgaps: false,
+    x: d.years, y: d.cohesion[k].map(pctOrNull),
+    line: { color, width: 2, dash },
+    hovertemplate: `${name}: %{y:.0f}%<extra></extra>`,
+  }));
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Within-bloc agreement", ticksuffix: "%", range: [50, 102] },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 84 },
+  }), PLOT_CONFIG);
+  const i1985 = d.years.indexOf(1985);
+  const last = lensAnchorIndex(d);
+  const sov = i1985 >= 0 ? d.cohesion.soviet_led[i1985] : null;
+  setStoryText(
+    "lensCohesion", "finding",
+    sov != null
+      ? `In 1985 the Soviet camp voted together ${(sov * 100).toFixed(0)}% of the time and the US-led camp ${(d.cohesion.us_led[i1985] * 100).toFixed(0)}%; in ${d.years[last]} the periphery is the most disciplined bloc at ${(d.cohesion.periphery[last] * 100).toFixed(0)}%`
+      : "Bloc discipline over the record",
+  );
+  setStoryText("lensCohesion", "takeaway", `US-led camp ${(d.cohesion.us_led[last] * 100).toFixed(0)}%, Russian-led camp ${(d.cohesion.soviet_led[last] * 100).toFixed(0)}%, core ${(d.cohesion.core[last] * 100).toFixed(0)}%, regional groups ${(d.cohesion.regions[last] * 100).toFixed(0)}% in ${d.years[last]}.`);
+}
+
+function renderLensMethods(d) {
+  const host = storyEl("lensMethods", "methods");
+  clearNode(host);
+  const names = {
+    explained_variance: "Explained variance",
+    cohesion: "Cohesion",
+    index: "Fingerprint index",
+    alliance_camps: "Alliance camps",
+    tiers: "Income tiers",
+    feminist_cohort: "Feminist-policy cohort",
+  };
+  const dl = Object.entries(d.definitions).map(([k, v]) => `<dt>${storyEscape(names[k] || k)}</dt><dd>${storyEscape(v)}</dd>`).join("");
+  const ul = d.caveats.map((c) => `<li>${storyEscape(c)}</li>`).join("");
+  host.innerHTML = `<div class="methods"><dl>${dl}</dl><ul>${ul}</ul></div>`;
 }
