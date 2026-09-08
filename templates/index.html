@@ -270,16 +270,43 @@
 
       <section id="lenses" class="tab-pane" role="tabpanel" aria-labelledby="lensesTab" hidden>
         <p class="story-standfirst">
-          Each theory of international relations makes claims about what organises the Assembly's votes.
-          Here each claim is a measurement, run over every complete year since 1946: whose fingerprint is on
-          the record, and when. The partitions and formulas are stated at the bottom; every one is a proxy.
+          Each theory of international relations makes claims about what the Assembly is and what organises its votes.
+          Every theory predicts <em>some</em> structure, so a description cannot choose between them. What can is a
+          prediction one theory makes and its rivals do not. The scorecard states nine such predictions and lets the
+          record answer; the charts below it show the readings each theory would point to. Partitions, formulas and
+          sources are at the bottom; every one is a proxy.
         </p>
+
+        <article class="story-card" id="lensScorecard">
+          <header class="story-head">
+            <span class="story-kicker">The scorecard · where the theories disagree</span>
+            <h3 class="story-finding" data-role="finding">Nine predictions, tested on the record</h3>
+            <p class="story-caption">Each row: the theory that makes the distinctive prediction, what its rivals expect instead, the measurement, and the verdict. Numbers are pooled over the whole record and reported by era.</p>
+          </header>
+          <div class="viz-body" data-role="table"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">A verdict is about one prediction on one record: recorded votes only, with the proxies named in the methods. "Not supported" means the record does not show what the theory predicts here, not that the theory is wrong everywhere.</p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensUnique">
+          <header class="story-head">
+            <span class="story-kicker">00 · Held together: what each factor explains on its own</span>
+            <h3 class="story-finding" data-role="finding">Alliance, wealth, regime and identity at once</h3>
+            <p class="story-caption">Alliance camps, income tiers, regime types and identity groups overlap: most Arab League members are also non-aligned and in the periphery. Holding all four at once, each line is the share of the vote a factor explains that none of the others can. Identity groups are the European Union, the Arab League, the Organisation of Islamic Cooperation and the Non-Aligned Movement, by year of membership.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+          </footer>
+        </article>
 
         <article class="story-card" id="lensOrganise">
           <header class="story-head">
             <span class="story-kicker">01 · What organises the room?</span>
             <h3 class="story-finding" data-role="finding">Which map of the world predicts the votes best?</h3>
-            <p class="story-caption">Four ways to partition the membership, each the home ground of a theory: treaty alliances (realism), income tiers (world-systems), the UN's regional groups (constructivism), regime type (liberalism). The dashed line is the data-derived check on the alliance list: communities of the Correlates of War defence-pact graph, to 2012 where that record ends. Lines show how much of each year's voting variance each partition explains beyond chance.</p>
+            <p class="story-caption">Four ways to partition the membership, each the home ground of a theory: treaty alliances (realism), income tiers (world-systems), identity groups (constructivism), regime type (liberalism). The dashed line is the data-derived check on the alliance list: communities of the Correlates of War defence-pact graph, to 2012 where that record ends. The dotted grey line is the UN's own regional groups, electoral machinery rather than a theory. Lines show how much of each year's voting variance each partition explains beyond chance, taken one at a time; the chart above separates them.</p>
           </header>
           <div class="plot-host tall" data-role="chart"></div>
           <footer class="story-foot">
@@ -292,7 +319,7 @@
           <header class="story-head">
             <span class="story-kicker">02 · On home ground</span>
             <h3 class="story-finding" data-role="finding">Each theory where it should be strongest</h3>
-            <p class="story-caption">Alliances on security items, income tiers on economic items, regional groups and democracies on human-rights items. A theory that fails on its own ground has little claim on the rest.</p>
+            <p class="story-caption">Alliances on security items, income tiers on economic items, identity groups and democracies on human-rights items. A theory that fails on its own ground has little claim on the rest.</p>
           </header>
           <div class="plot-host tall" data-role="chart"></div>
           <footer class="story-foot">
@@ -345,6 +372,32 @@
             <div class="plot-host" data-role="chart"></div>
           </article>
         </div>
+
+        <article class="story-card" id="lensSemiPeriphery">
+          <header class="story-head">
+            <span class="story-kicker">05b · The semi-periphery</span>
+            <h3 class="story-finding" data-role="finding">Where the middle stratum sits, and when it moves</h3>
+            <p class="story-caption">World-systems theory's distinctive claim is not that the poor vote against the rich but that a middle stratum exists and moves: it leads the periphery's demands when it is blocked from the core, and it drifts toward the core when it is being let in. Net support of each income tier on the year's economic items.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">Tiers follow the World Bank's income classification (carried back before 1987 with the socialist bloc in the semi-periphery), so the semi-periphery here is the upper-middle-income group, a proxy for Wallerstein's structural position.</p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="lensColonial">
+          <header class="story-head">
+            <span class="story-kicker">05c · The colonial line</span>
+            <h3 class="story-finding" data-role="finding">Empire's afterlife in the vote</h3>
+            <p class="story-caption">Post-colonial theory reads the Assembly as the arena where the decolonised remade the international order: self-determination, permanent sovereignty over resources, the New International Economic Order, the campaign against apartheid. Net support of the decolonised states and of the former colonial powers and settler states on decolonisation and self-determination items, and, on the right axis, what colonial history explains once wealth and alliance are held fixed.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">Groups from the ICOW Colonial History data: overseas empires and settler states on one side; states independent of an overseas empire since 1945 on the other; older ex-colonies and never-colonised states in between.</p>
+          </footer>
+        </article>
 
         <article class="story-card" id="lensCharacter">
           <header class="story-head">

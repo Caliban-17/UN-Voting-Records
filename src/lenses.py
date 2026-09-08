@@ -87,12 +87,13 @@ NORTH_SOUTH_MARKERS = [
 
 PERMUTATIONS = 30
 CLOSE_CALL = 0.05  # index points (0–1) separating a clear top lens from a close call
-LENSES = ["realism", "liberalism", "world_systems", "constructivism", "feminism"]
+LENSES = ["realism", "liberalism", "world_systems", "constructivism", "postcolonial", "feminism"]
 LENS_LABELS = {
     "realism": "Realism",
     "liberalism": "Liberalism",
     "world_systems": "World-systems",
     "constructivism": "Constructivism",
+    "postcolonial": "Post-colonial / critical",
     "feminism": "Feminist IR",
 }
 
@@ -262,6 +263,19 @@ def _mean_of(components: list[list[Optional[float]]]) -> list[Optional[float]]:
     return out
 
 
+_timeline_cache: dict[tuple[int, int], dict] = {}
+
+
+def lens_timeline_cached(df: pd.DataFrame) -> dict:
+    """``lens_timeline`` computed once per DataFrame object (the app and the
+    newsletter composer both hold one frame for the life of the process)."""
+    key = (id(df), len(df))
+    if key not in _timeline_cache:
+        _timeline_cache.clear()
+        _timeline_cache[key] = lens_timeline(df)
+    return _timeline_cache[key]
+
+
 def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
     """Everything the 'Through which lens?' view needs, for every complete
     year in the record."""
@@ -272,8 +286,8 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
     gender_mask = (res["issue"].fillna("") + " || " + res["subjects"].fillna("")).str.upper().str.contains(GENDER_PATTERN)
     res = res.assign(gender=gender_mask)
 
-    partitions = {k: [] for k in ("alliance", "tier", "region", "ffp", "regime", "democracy", "pact", "representation")}
-    home_turf = {"alliance": [], "tier": [], "region": [], "democracy": []}
+    partitions = {k: [] for k in ("alliance", "tier", "region", "identity", "colonial", "ffp", "regime", "democracy", "pact", "representation")}
+    home_turf = {"alliance": [], "tier": [], "region": [], "identity": [], "colonial": [], "democracy": []}
     cohesion = {k: [] for k in ("us_led", "soviet_led", "core", "periphery", "regions", "democracies", "autocracies", "pacts")}
     links = {"democracy_rights": [], "representation_rights": [], "representation_gender": []}
     character = {k: [] for k in ("democracy_share", "liberal_democracy_share", "women_in_parliament_mean", "in_defence_pact_share")}
@@ -300,7 +314,7 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
             partitions[scheme].append(adjusted_explained_variance(matrix, labels[scheme], permutations, seed=year))
         # each theory on its home ground
         rights = THEMES_BY_LENS["normative"]
-        for scheme, themes in (("alliance", THEMES_BY_LENS["security"]), ("tier", THEMES_BY_LENS["economic"]), ("region", rights), ("democracy", rights)):
+        for scheme, themes in (("alliance", THEMES_BY_LENS["security"]), ("tier", THEMES_BY_LENS["economic"]), ("region", rights), ("identity", rights), ("colonial", THEMES_BY_LENS["decolonial"]), ("democracy", rights)):
             cols = [c for c in _theme_columns(res, year, themes) if c in matrix.columns]
             if len(cols) >= 5:
                 home_turf[scheme].append(adjusted_explained_variance(matrix[cols], labels[scheme], permutations, seed=year))
@@ -365,6 +379,10 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
         if series:
             markers.append({"key": key, "label": label, "series": series})
 
+    from src.lenses_scorecard import scorecard as _scorecard
+
+    card = _scorecard(df, years, partitions, permutations=min(permutations, 10))
+
     adj = lambda scheme: [p["adjusted"] for p in partitions[scheme]]  # noqa: E731
     adj_home = lambda scheme: [p["adjusted"] for p in home_turf[scheme]]  # noqa: E731
     two_camps = [None if a is None or b is None else round((a + b) / 2, 4) for a, b in zip(cohesion["us_led"], cohesion["soviet_led"])]
@@ -379,19 +397,28 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
             "agreement_across_members": agreement,
             "lopsided_votes_share": lopsided,
             "institution_building_agenda_share": agenda["institutional"],
-            "democracies_explain_votes": adj("democracy"),
+            "democracies_among_the_nonaligned": card["democracy_within_nonaligned_series"],
             "democracies_on_rights_items": adj_home("democracy"),
             "democracy_cohesion": cohesion["democracies"],
         },
         "world_systems": {
             "income_tiers_explain_votes": adj("tier"),
             "income_tiers_on_economic_items": adj_home("tier"),
+            "tiers_ordered_on_economic_items": card["tier_positions"]["ordered"],
             "core_cohesion": cohesion["core"],
             "economic_agenda_share": agenda["economic"],
         },
+        "postcolonial": {
+            "colonial_line_explains_votes": adj("colonial"),
+            "colonial_line_beyond_wealth_and_alliance": card["colonial_line_series"]["unique"],
+            "colonial_line_on_decolonisation_items": adj_home("colonial"),
+            "north_south_gap_on_decolonisation_items": card["colonial_line_series"]["gap"],
+            "decolonisation_agenda_share": agenda["decolonial"],
+        },
         "constructivism": {
-            "regional_groups_explain_votes": adj("region"),
-            "regional_groups_on_rights_items": adj_home("region"),
+            "identity_groups_explain_votes": adj("identity"),
+            "identity_beyond_alliance_wealth_and_regime": card["unique_variance_series"]["identity"],
+            "identity_groups_on_rights_items": adj_home("identity"),
             "normative_agenda_share": agenda["normative"],
             "norm_cascade_support": cascade_level,
         },
@@ -399,7 +426,6 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
             "gender_agenda_share": agenda["gender"],
             "gender_vote_support": gender_support,
             "feminist_policy_bloc_cohesion": ffp_cohesion,
-            "feminist_policy_bloc_explains_votes": adj("ffp"),
             "representation_explains_votes": adj("representation"),
             "representation_rights_link": links["representation_rights"],
         },
@@ -436,7 +462,9 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
         "cascades": cascades,
         "north_south_markers": markers,
         "eras": eras,
+        "scorecard": card,
         "definitions": DEFINITIONS,
+        "reading": READING,
         "sources": SOURCES,
         "caveats": CAVEATS,
     }
@@ -481,9 +509,9 @@ def _eras(years: list[int], indices: dict, components: dict, last_full: Optional
         facts = []
         a = avg("realism", "alliance_blocs_explain_votes")
         t = avg("world_systems", "income_tiers_explain_votes")
-        r = avg("constructivism", "regional_groups_explain_votes")
+        r = avg("constructivism", "identity_groups_explain_votes")
         if a is not None and t is not None and r is not None:
-            best = max((a, "treaty alliances"), (t, "income tiers"), (r, "regional groups"))
+            best = max((a, "treaty alliances"), (t, "income tiers"), (r, "identity groups"))
             facts.append(f"{best[1]} explained the most voting variance ({best[0] * 100:.0f}% above chance)")
         g = avg("liberalism", "agreement_across_members")
         if g is not None:
@@ -508,10 +536,39 @@ def _eras(years: list[int], indices: dict, components: dict, last_full: Optional
 
 DEFINITIONS = {
     "explained_variance": (
-        "For a partition of the membership (treaty alliances, income tiers, regional groups), the "
-        "share of the year's voting variance that lies between groups rather than within them, "
-        "pooled over the year's resolutions, minus what the same partition explains when its "
-        "labels are shuffled, rescaled to 0–1."
+        "For a partition of the membership (treaty alliances, income tiers, identity groups, regime "
+        "types, the UN's regional groups), the share of the year's voting variance that lies between "
+        "groups rather than within them, pooled over the year's resolutions, minus what the same "
+        "partition explains when its labels are shuffled, rescaled to 0–1."
+    ),
+    "unique_variance": (
+        "Explained variance of the four-way cross-partition of alliance camp, income tier, regime type "
+        "and identity group, minus the same without one factor: what that factor explains that none of "
+        "the others can. This is the only place the overlapping partitions are separated."
+    ),
+    "identity_groups": (
+        "Self-constituted identity organisations, by year of membership: the European Union (1958 on, by "
+        "accession), the Arab League (1945 on), the Organisation of Islamic Cooperation (1969 on) and the "
+        "Non-Aligned Movement (1961 on, with former members Yugoslavia, Cyprus, Malta and Argentina). One "
+        "label per member by precedence EU, Arab League, OIC, NAM, none. Unlike treaty camps or income "
+        "tiers, membership is a claim about who a state is."
+    ),
+    "scorecard": (
+        "A prediction one theory makes and its rivals do not, a measurement, and a verdict: supported when "
+        "the record shows the predicted pattern clearly, not supported when it shows the rival pattern, "
+        "mixed when both appear, insufficient evidence when the data are too thin."
+    ),
+    "semi_periphery": (
+        "On the year's economic items, the mean net support of each income tier (+1 yes, −1 no, 0 otherwise). "
+        "The semi-periphery's lean is where it sits between the periphery (0) and the core (1). Wallerstein's "
+        "claim is that this middle stratum is structurally distinct and politically mobile: it stabilises the "
+        "system by aspiring to the core, and it leads the periphery's demands when that path is blocked."
+    ),
+    "colonial_line": (
+        "Post-colonial theory's partition, from the ICOW Colonial History data: former colonial powers (the "
+        "overseas empires), settler states (Canada, Australia, New Zealand, Israel, apartheid South Africa), "
+        "states independent of an overseas empire since 1945, older ex-colonies (Latin America and the like) "
+        "and states never colonised by an overseas empire. 'North' is the first two groups, 'South' the rest."
     ),
     "cohesion": "Within a group, the share of shared side-takings that matched (pooled pairwise agreement).",
     "index": (
@@ -559,12 +616,33 @@ DEFINITIONS = {
     ),
 }
 
+READING = [
+    "Wallerstein, I. (1974) 'The rise and future demise of the world capitalist system', Comparative Studies in Society and History 16(4); (1976) 'Semi-peripheral countries and the contemporary world crisis', Theory and Society 3(4); Arrighi, G. and Drangel, J. (1986) 'The stratification of the world-economy: an exploration of the semiperipheral zone', Review 10(1); Chase-Dunn, C. and Hall, T. (1997) Rise and Demise.",
+    "Getachew, A. (2019) Worldmaking after Empire: The Rise and Fall of Self-Determination; Anghie, A. (2005) Imperialism, Sovereignty and the Making of International Law; Jensen, S. (2016) The Making of International Human Rights: the 1960s, decolonization, and the reconstruction of global values; Burke, R. (2010) Decolonization and the Evolution of International Human Rights; Mazower, M. (2009) No Enchanted Palace.",
+    "Cox, R. (1983) 'Gramsci, hegemony and international relations', Millennium 12(2); Said, E. (1978) Orientalism; Acharya, A. and Buzan, B. (2019) The Making of Global International Relations; Hensel, P. (2018) ICOW Colonial History Data Set v1.1.",
+    "Wendt, A. (1992) 'Anarchy is what states make of it', International Organization 46(2); (1999) Social Theory of International Politics.",
+    "Finnemore, M. and Sikkink, K. (1998) 'International norm dynamics and political change', International Organization 52(4): the norm life cycle and its tipping point near a third of states.",
+    "Katzenstein, P. (ed.) (1996) The Culture of National Security; Barnett, M. and Finnemore, M. (2004) Rules for the World: identity, norms and international organisations as actors.",
+    "Claude, I. (1966) 'Collective legitimization as a political function of the United Nations', International Organization 20(3).",
+    "Risse-Kappen, T. (1995) Cooperation among Democracies; Schimmelfennig, F. (2001) 'The community trap', International Organization 55(1): identity and rhetorical action before NATO and EU enlargement.",
+    "Walt, S. (1987) The Origins of Alliances; Mearsheimer, J. (1994) 'The false promise of international institutions', International Security 19(3).",
+    "Voeten, E. (2000) 'Clashes in the Assembly', International Organization 54(2); (2004) 'Resisting the lonely superpower', Journal of Politics 66(3); Bailey, Strezhnev and Voeten (2017) 'Estimating dynamic state preferences from UN voting data', Journal of Conflict Resolution 61(2).",
+    "Kim, S. Y. and Russett, B. (1996) 'The new politics of voting alignments in the UN General Assembly', International Organization 50(4); Krasner, S. (1985) Structural Conflict: the North–South cleavage.",
+    "Wallerstein, I. (1974–) The Modern World-System; Cox, R. (1981) 'Social forces, states and world orders', Millennium 10(2).",
+    "Doyle, M. (1986) 'Liberalism and world politics', APSR 80(4); Russett, B. and Oneal, J. (2001) Triangulating Peace; Moravcsik, A. (1997) 'Taking preferences seriously', International Organization 51(4).",
+    "Dreher, A., Nunnenkamp, P. and Thiele, R. (2008) 'Does US aid buy UN General Assembly votes?', Public Choice 136: the realist patronage mechanism this record cannot test directly.",
+    "Lebovic, J. and Voeten, E. (2006) 'The politics of shame', International Studies Quarterly 50(4); (2009) 'The cost of shame', Journal of Peace Research 46(1).",
+    "Tickner, J. A. (1992) Gender in International Relations; True, J. (2003) 'Mainstreaming gender in global public policy', International Feminist Journal of Politics 5(3); Aggestam, K. and Bergman Rosamond, A. (2016) 'Swedish feminist foreign policy in the making', Ethics & International Affairs 30(3).",
+    "Pape, R. (2005) 'Soft balancing against the United States', International Security 30(1).",
+]
+
 SOURCES = [
     {"label": "UN General Assembly roll-call votes", "detail": "UN Digital Library and DGACM extracts, 1946–present."},
     {"label": "World Bank historical income classification", "detail": "OGHIST, fiscal years 1987–2023, CC BY 4.0."},
     {"label": "V-Dem regimes and liberal democracy index", "detail": "Varieties of Democracy v15 via Our World in Data, 1789–2025, CC BY 4.0."},
     {"label": "Women in parliament", "detail": "Inter-Parliamentary Union via the World Bank (SG.GEN.PARL.ZS, 1997–2025) and V-Dem via Our World in Data (1900–2025)."},
     {"label": "Correlates of War Formal Alliances v4.1", "detail": "Gibler (2009), dyad-year defence pacts, 1816–2012."},
+    {"label": "ICOW Colonial History v1.1", "detail": "Hensel (2018): colonial ruler, independence date and type for every state in the COW system, 1816–2018."},
 ]
 
 CAVEATS = [
@@ -575,4 +653,8 @@ CAVEATS = [
     "The current year is left out until its main session part, September to December, is in the record.",
     "Regime type and women's representation are missing for a dozen microstates and for some states in years without a legislature; those members simply sit outside that partition for the year.",
     "The Correlates of War alliance data stop in 2012; the defence-pact reading is a check on the curated camps for the years both cover, not a replacement after it.",
+    "Identity groups overlap material position: most Arab League members are non-aligned and in the periphery. Only the unique-variance test separates them; the plain identity line does not.",
+    "The UN's regional groups are electoral machinery rather than chosen identities; they stay on the chart as the institutional reading, outside every theory's index.",
+    "Adoption-type data (votes vs consensus) cover sessions 74 to 79 only, the years the DGACM extracts hold; the internalisation reading is about the present, not the record.",
+    "The colonial line follows the ICOW coding of rulers and independence: Ottoman successor states (Egypt, Iraq, the Levant) and the Soviet successor states count as never colonised by an overseas empire, which post-colonial scholarship on both would contest.",
 ]

@@ -1517,3 +1517,23 @@ p {
 .lens-close { color: var(--ink-500); font-size: 0.8rem; white-space: nowrap; }
 .methods__sources-title { margin: 14px 0 4px; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500); }
 .methods__sources { margin-top: 0 !important; }
+
+/* ── Scorecard ─────────────────────────────────────────────────────────── */
+.scorecard-wrap { overflow-x: auto; }
+.scorecard { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 760px; }
+.scorecard th { text-align: left; padding: 8px 10px; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500); border-bottom: 1px solid var(--paper-200); }
+.scorecard td { padding: 12px 10px; border-bottom: 1px solid var(--paper-200); vertical-align: top; line-height: 1.45; }
+.scorecard__theory { width: 12%; }
+.scorecard__claim { width: 40%; }
+.scorecard__reading { width: 36%; color: var(--ink-700); }
+.scorecard__verdict { width: 12%; white-space: nowrap; }
+.scorecard__prediction { margin: 0 0 6px; color: var(--ink-900); }
+.scorecard__rival { margin: 0 0 6px; color: var(--ink-700); font-size: 0.84rem; }
+.scorecard__measure { margin: 0; color: var(--ink-500); font-size: 0.8rem; }
+.lens-chip--small { font-size: 0.7rem; padding: 1px 7px; margin: 0 2px 4px 0; }
+.verdict { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 700; border: 1px solid transparent; }
+.verdict--yes { background: #e3f3ee; color: #0b5e46; border-color: #9bd6c3; }
+.verdict--no { background: #fbe9e1; color: #8a3a12; border-color: #f0b89c; }
+.verdict--mixed { background: #fff4d6; color: #7a5300; border-color: #f2d48a; }
+.verdict--thin { background: var(--paper-100); color: var(--ink-500); border-color: var(--paper-200); }
+.scorecard__vs { margin-top: 4px; font-size: 0.74rem; color: var(--ink-500); line-height: 1.3; }

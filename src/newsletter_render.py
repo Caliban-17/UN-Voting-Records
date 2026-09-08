@@ -153,6 +153,30 @@ def render_markdown(edition: NewsletterEdition) -> str:
             lines.append(big["takeaway"])
         lines.append("")
 
+    # Through which lens — the theories against the record
+    lens = getattr(edition, "lenses", None) or {}
+    if lens.get("verdicts"):
+        lines.append("## Through which lens")
+        lines.append("")
+        lines.append(lens.get("takeaway", ""))
+        lines.append("")
+        for v in lens["verdicts"]:
+            lines.append(f"- **{v['verdict'].capitalize()}** — {', '.join(v['theories'])}: {v['reading']}")
+        tally = lens.get("tally") or {}
+        if tally:
+            lines.append("")
+            lines.append("Across every test: " + "; ".join(
+                f"{name} {c['supported']} supported, {c['not_supported']} not, {c['mixed']} mixed" for name, c in tally.items()
+            ) + ".")
+        focus = lens.get("focus") or {}
+        if focus.get("coordinates"):
+            lines.append("")
+            lines.append(f"Through the lenses, {focus['name']} in {lens['year']} is: " + "; ".join(focus["coordinates"]) + ".")
+        if lens.get("caveat"):
+            lines.append("")
+            lines.append(f"_{lens['caveat']}_")
+        lines.append("")
+
     # Lead story
     lines.append(f"## {SECTION_TITLES['shift']}")
     lines.append("")
@@ -372,6 +396,27 @@ def render_text(edition: NewsletterEdition) -> str:
             lines.append(f"            {' ':>10}   ({s['context']})")
         if big.get("takeaway"):
             lines.append(_wrap_para(big["takeaway"]))
+
+    lens = getattr(edition, "lenses", None) or {}
+    if lens.get("verdicts"):
+        section("Through which lens")
+        lines.append(_wrap_para(lens.get("takeaway", "")))
+        for v in lens["verdicts"]:
+            lines.append("")
+            lines.append(_wrap_para(f"{v['verdict'].upper()} — {', '.join(v['theories'])}: {v['reading']}"))
+        tally = lens.get("tally") or {}
+        if tally:
+            lines.append("")
+            lines.append(_wrap_para("Across every test: " + "; ".join(
+                f"{name} {c['supported']} supported, {c['not_supported']} not, {c['mixed']} mixed" for name, c in tally.items()
+            ) + "."))
+        focus = lens.get("focus") or {}
+        if focus.get("coordinates"):
+            lines.append("")
+            lines.append(_wrap_para(f"Through the lenses, {focus['name']} in {lens['year']} is: " + "; ".join(focus["coordinates"]) + "."))
+        if lens.get("caveat"):
+            lines.append("")
+            lines.append(_wrap_para(lens["caveat"]))
 
     # Lead story
     section(f"{SECTION_TITLES['shift']}: {edition.lead_story.headline}")
@@ -784,6 +829,34 @@ def render_html(edition: NewsletterEdition) -> str:
         ]))
         if big.get("takeaway"):
             o.append(f'<p style="margin:8px 0 0;font-size:14.5px;color:#23425f;">{_esc(big["takeaway"])}</p>')
+
+    # Through which lens — the theories against the record
+    lens = getattr(edition, "lenses", None) or {}
+    if lens.get("verdicts"):
+        o.append(f'<h2 id="through-which-lens" style="{_S["h2"]}">Through which lens</h2>')
+        o.append(f'<p style="{_S["why_box"]}">{_esc(lens.get("takeaway", ""))}</p>')
+        rows = []
+        for v in lens["verdicts"]:
+            colour = {"supported": "#0b5e46", "not supported": "#8a3a12", "mixed": "#7a5300"}.get(v["verdict"], "#5b6b7a")
+            rows.append(
+                f'<tr><td style="{_S["td"]}white-space:nowrap;font-weight:700;color:{colour};">{_esc(v["verdict"].capitalize())}</td>'
+                f'<td style="{_S["td"]}"><span style="color:#5b6b7a;">{_esc(", ".join(v["theories"]))}.</span> {_esc(v["reading"])}</td></tr>'
+            )
+        o.append(
+            f'<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="{_S["table_outer"]}">'
+            f'<tr><th style="{_S["th"]}">Verdict</th><th style="{_S["th"]}">Prediction tested, and what the record says</th></tr>'
+            + "".join(rows) + '</table>'
+        )
+        tally = lens.get("tally") or {}
+        if tally:
+            o.append('<p style="margin:8px 0 0;font-size:13.5px;color:#23425f;">Across every test: ' + _esc("; ".join(
+                f"{name} {c['supported']} supported, {c['not_supported']} not, {c['mixed']} mixed" for name, c in tally.items()
+            )) + '.</p>')
+        focus = lens.get("focus") or {}
+        if focus.get("coordinates"):
+            o.append(f'<p style="margin:8px 0 0;font-size:14px;color:#0b2238;">Through the lenses, {_esc(focus["name"])} in {lens["year"]} is: {_esc("; ".join(focus["coordinates"]))}.</p>')
+        if lens.get("caveat"):
+            o.append(f'<p style="{_S["chart_caption"]}">{_esc(lens["caveat"])}</p>')
 
     # Top drifts chart (inline SVG — email-safe, no remote images).
     raw_drifts = edition.chart_payloads.get("top_drifts_raw") or []

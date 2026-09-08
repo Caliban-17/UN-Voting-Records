@@ -3534,18 +3534,21 @@ const LENS_COLORS = {
   liberalism: "#0072b2",
   world_systems: "#d55e00",
   constructivism: "#009e73",
+  postcolonial: "#e69f00",
   feminism: "#cc79a7",
 };
 const PARTITION_LABELS = {
   alliance: "Treaty alliances (realism)",
   tier: "Income tiers (world-systems)",
-  region: "Regional groups (constructivism)",
+  identity: "Identity groups: EU, Arab League, OIC, NAM (constructivism)",
+  colonial: "The colonial line (post-colonial)",
+  region: "UN regional groups (institutional)",
   regime: "Regime type (liberalism)",
   democracy: "Democracies vs autocracies (liberalism)",
   pact: "Defence-pact communities (COW, to 2012)",
   representation: "Women in parliament, thirds (feminist IR)",
 };
-const PARTITION_COLORS = { alliance: "#0b2238", tier: "#d55e00", region: "#009e73", regime: "#0072b2", democracy: "#0072b2", pact: "#0b2238", representation: "#cc79a7" };
+const PARTITION_COLORS = { alliance: "#0b2238", tier: "#d55e00", identity: "#009e73", colonial: "#e69f00", region: "#8a8a8a", regime: "#0072b2", democracy: "#0072b2", pact: "#0b2238", representation: "#cc79a7" };
 
 function pctOrNull(v) {
   return v == null ? null : v * 100;
@@ -3563,18 +3566,22 @@ async function loadLenses(force = false) {
   LENS.loading = (async () => {
     try {
       requirePlotly();
-      ["lensOrganise", "lensHomeTurf", "lensFingerprints", "lensCascades", "lensNorthSouth", "lensCharacter", "lensLinks", "lensCohesion"].forEach((id) => {
+      ["lensUnique", "lensOrganise", "lensHomeTurf", "lensFingerprints", "lensCascades", "lensNorthSouth", "lensSemiPeriphery", "lensColonial", "lensCharacter", "lensLinks", "lensCohesion"].forEach((id) => {
         const host = storyEl(id, "chart");
         if (host) setLoading(host, "Reading the whole record through five lenses… (the first load takes a moment)");
       });
       const res = await axios.get("/api/story/lenses");
       LENS.data = res.data;
+      renderLensScorecard(res.data);
+      renderLensUnique(res.data);
       renderLensOrganise(res.data);
       renderLensHomeTurf(res.data);
       renderLensFingerprints(res.data);
       renderLensEras(res.data);
       renderLensCascades(res.data);
       renderLensNorthSouth(res.data);
+      renderLensSemiPeriphery(res.data);
+      renderLensColonial(res.data);
       renderLensCharacter(res.data);
       renderLensLinks(res.data);
       renderLensCohesion(res.data);
@@ -3616,11 +3623,13 @@ function renderLensOrganise(d) {
   clearNode(host);
   const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
   Plotly.newPlot(host, [
-    partitionLine(d, "region", d.partitions),
+    partitionLine(d, "identity", d.partitions),
+    partitionLine(d, "colonial", d.partitions),
     partitionLine(d, "alliance", d.partitions),
     partitionLine(d, "pact", d.partitions, "dash"),
     partitionLine(d, "regime", d.partitions),
     partitionLine(d, "tier", d.partitions),
+    partitionLine(d, "region", d.partitions, "dot"),
     ev.trace,
   ], storyLayout({
     shapes: ev.shapes,
@@ -3630,11 +3639,19 @@ function renderLensOrganise(d) {
   }), PLOT_CONFIG);
 
   const means = {};
-  ["region", "alliance", "tier", "regime"].forEach((s) => {
+  ["identity", "colonial", "alliance", "tier", "regime", "region"].forEach((s) => {
     means[s] = decadeMeans(d.years, d.partitions[s].map((p) => p.adjusted));
   });
-  const decades = Object.keys(means.region).sort();
-  const regionWins = decades.filter((dec) => ["alliance", "tier", "regime"].every((s) => means.region[dec] >= (means[s][dec] || 0))).length;
+  const decades = Object.keys(means.alliance).sort();
+  const theoryKeys = ["identity", "colonial", "alliance", "tier", "regime"];
+  const theoryNames = { identity: "identity groups", colonial: "the colonial line", alliance: "treaty alliances", tier: "income tiers", regime: "regime type" };
+  const winners = {};
+  decades.forEach((dec) => {
+    const best = theoryKeys.reduce((b, s) => ((means[s][dec] || 0) > (means[b][dec] || 0) ? s : b), theoryKeys[0]);
+    winners[best] = (winners[best] || 0) + 1;
+  });
+  const winnerRank = Object.entries(winners).sort((a, b) => b[1] - a[1]);
+  const regionWins = decades.filter((dec) => theoryKeys.every((s) => (means.region[dec] || 0) >= (means[s][dec] || 0))).length;
   const alliancePeak = d.years.reduce((best, y, i) => {
     const v = d.partitions.alliance[i].adjusted;
     return v != null && v > best.v ? { y, v } : best;
@@ -3642,9 +3659,9 @@ function renderLensOrganise(d) {
   const last = lensAnchorIndex(d);
   setStoryText(
     "lensOrganise", "finding",
-    regionWins === decades.length
-      ? `The UN's own regional groups have predicted votes better than alliances, wealth or regime type in every decade`
-      : `The UN's regional groups predicted votes better than alliances, wealth or regime type in ${regionWins} of ${decades.length} decades`,
+    `Of the five theory partitions, ${theoryNames[winnerRank[0][0]]} explained the most in ${winnerRank[0][1]} of ${decades.length} decades` +
+    (winnerRank[1] ? `, ${theoryNames[winnerRank[1][0]]} in ${winnerRank[1][1]}` : "") +
+    `; the UN's own regional groups beat all four in ${regionWins} of ${decades.length}, but they are machinery, not a theory`,
   );
   const pct = (v) => (v == null ? "–" : `${(v * 100).toFixed(0)}%`);
   const cowLast = d.cow_years && d.cow_years[1] ? d.years.indexOf(d.cow_years[1]) : -1;
@@ -3654,16 +3671,16 @@ function renderLensOrganise(d) {
   setStoryText(
     "lensOrganise", "takeaway",
     `Treaty alliances explained the most in ${alliancePeak.y} (${pct(alliancePeak.v)} beyond chance) and ${pct(d.partitions.alliance[last].adjusted)} in ${d.years[last]}; ` +
-    `regional groups ${pct(d.partitions.region[last].adjusted)}, regime type ${pct(d.partitions.regime[last].adjusted)} and income tiers ${pct(d.partitions.tier[last].adjusted)} in ${d.years[last]}.${cowNote}`,
+    `identity groups ${pct(d.partitions.identity[last].adjusted)}, the colonial line ${pct(d.partitions.colonial[last].adjusted)}, regime type ${pct(d.partitions.regime[last].adjusted)}, income tiers ${pct(d.partitions.tier[last].adjusted)} and the regional groups ${pct(d.partitions.region[last].adjusted)} in ${d.years[last]}.${cowNote}`,
   );
 }
 
 function renderLensHomeTurf(d) {
   const host = storyEl("lensHomeTurf", "chart");
   clearNode(host);
-  const label = { alliance: "Alliances on security items", tier: "Income tiers on economic items", region: "Regional groups on rights items", democracy: "Democracies vs autocracies on rights items" };
+  const label = { alliance: "Alliances on security items", tier: "Income tiers on economic items", identity: "Identity groups on rights items", democracy: "Democracies vs autocracies on rights items", region: "UN regional groups on rights items" };
   const smooth = d.home_turf_smoothed || {};
-  const traces = ["region", "alliance", "democracy", "tier"].map((s) => ({
+  const traces = ["identity", "alliance", "democracy", "tier"].map((s) => ({
     type: "scatter", mode: "lines", name: label[s], connectgaps: false,
     x: d.years, y: (smooth[s] || d.home_turf[s].map((p) => p.adjusted)).map(pctOrNull),
     customdata: d.home_turf[s].map((p) => (p.adjusted == null ? "–" : (p.adjusted * 100).toFixed(0) + "%")),
@@ -3679,8 +3696,8 @@ function renderLensHomeTurf(d) {
     const v = d.home_turf[s][i].adjusted;
     return v != null && v > best.v ? { y, v } : best;
   }, { y: null, v: -1 });
-  const a = peak("alliance"), t = peak("tier"), r = peak("region"), dm = peak("democracy");
-  setStoryText("lensHomeTurf", "finding", `On security items alliances explained up to ${(a.v * 100).toFixed(0)}% of the vote (${a.y}); on economic items income tiers up to ${(t.v * 100).toFixed(0)}% (${t.y}); on rights items regional groups up to ${(r.v * 100).toFixed(0)}% (${r.y}) and the democracy line up to ${(dm.v * 100).toFixed(0)}% (${dm.y})`);
+  const a = peak("alliance"), t = peak("tier"), r = peak("identity"), dm = peak("democracy");
+  setStoryText("lensHomeTurf", "finding", `On security items alliances explained up to ${(a.v * 100).toFixed(0)}% of the vote (${a.y}); on economic items income tiers up to ${(t.v * 100).toFixed(0)}% (${t.y}); on rights items identity groups up to ${(r.v * 100).toFixed(0)}% (${r.y}) and the democracy line up to ${(dm.v * 100).toFixed(0)}% (${dm.y})`);
   setStoryText("lensHomeTurf", "takeaway", "Peaks are single years; lines average five. Gaps are stretches with fewer than five recorded votes on the theme.");
 }
 
@@ -3837,11 +3854,17 @@ function renderLensMethods(d) {
     representation: "Women in parliament",
     defence_pacts: "Defence pacts",
     link: "Link",
+    unique_variance: "Unique variance",
+    identity_groups: "Identity groups",
+    scorecard: "Verdicts",
+    semi_periphery: "The semi-periphery",
+    colonial_line: "The colonial line",
   };
   const dl = Object.entries(d.definitions).map(([k, v]) => `<dt>${storyEscape(names[k] || k)}</dt><dd>${storyEscape(v)}</dd>`).join("");
   const ul = d.caveats.map((c) => `<li>${storyEscape(c)}</li>`).join("");
   const sources = (d.sources || []).map((s) => `<li><b>${storyEscape(s.label)}</b> — ${storyEscape(s.detail)}</li>`).join("");
-  host.innerHTML = `<div class="methods"><dl>${dl}</dl><ul>${ul}</ul>` + (sources ? `<p class="methods__sources-title">Sources</p><ul class="methods__sources">${sources}</ul>` : "") + `</div>`;
+  const reading = (d.reading || []).map((r) => `<li>${storyEscape(r)}</li>`).join("");
+  host.innerHTML = `<div class="methods"><dl>${dl}</dl><ul>${ul}</ul>` + (sources ? `<p class="methods__sources-title">Sources</p><ul class="methods__sources">${sources}</ul>` : "") + (reading ? `<p class="methods__sources-title">Reading</p><ul class="methods__sources">${reading}</ul>` : "") + `</div>`;
 }
 
 
@@ -3930,5 +3953,177 @@ function renderLensLinks(d) {
     const signs = decs.map((k2) => `${k2}s ${decade[k2] >= 0 ? "+" : ""}${decade[k2].toFixed(2)}`).join(", ");
     setStoryText("lensLinks", "finding", `In ${d.years[dem.i]} freer states voted ${word(dem.v)} the rights resolutions that reached a vote (ρ ${dem.v >= 0 ? "+" : ""}${dem.v.toFixed(2)}); more gender-equal parliaments ${word(rep.v)} them (ρ ${rep.v >= 0 ? "+" : ""}${rep.v.toFixed(2)})`);
     setStoryText("lensLinks", "takeaway", `Decade averages of the democracy link: ${signs}.`);
+  }
+}
+
+
+// ── The scorecard: discriminating tests with verdicts ───────────────────────
+
+const VERDICT_CLASS = {
+  "supported": "verdict--yes",
+  "not supported": "verdict--no",
+  "mixed": "verdict--mixed",
+  "insufficient evidence": "verdict--thin",
+};
+const THEORY_LABELS = { realism: "Realism", liberalism: "Liberalism", world_systems: "World-systems", constructivism: "Constructivism", postcolonial: "Post-colonial / critical", feminism: "Feminist IR" };
+
+function renderLensScorecard(d) {
+  const host = storyEl("lensScorecard", "table");
+  clearNode(host);
+  const card = d.scorecard;
+  if (!card || !card.tests) {
+    host.innerHTML = '<p class="story-caveat">No scorecard in this payload.</p>';
+    return;
+  }
+  const rows = card.tests.map((t) => {
+    const owner = `<span class="lens-chip lens-chip--small" style="background:${LENS_COLORS[t.theory] || "#999"}">${storyEscape(THEORY_LABELS[t.theory] || t.theory)}</span>`;
+    const rivals = (t.rivals || []).map((k) => storyEscape(THEORY_LABELS[k] || k)).join(", ");
+    const theories = owner + (rivals ? `<div class="scorecard__vs">vs ${rivals}${t.mirrored ? " (opposite prediction, scored to them in reverse)" : ""}</div>` : "");
+    const rival = t.rival ? `<p class="scorecard__rival"><b>Rivals expect:</b> ${storyEscape(t.rival)}</p>` : "";
+    return `<tr>
+      <td class="scorecard__theory">${theories}</td>
+      <td class="scorecard__claim"><p class="scorecard__prediction">${storyEscape(t.prediction)}</p>${rival}<p class="scorecard__measure">${storyEscape(t.measure)}</p></td>
+      <td class="scorecard__reading">${storyEscape(t.reading)}</td>
+      <td class="scorecard__verdict"><span class="verdict ${VERDICT_CLASS[t.verdict] || ""}">${storyEscape(t.verdict)}</span></td>
+    </tr>`;
+  }).join("");
+  host.innerHTML = `<div class="scorecard-wrap"><table class="scorecard"><thead><tr><th>Whose prediction</th><th>The prediction and the measurement</th><th>What the record says</th><th>Verdict</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  const tally = card.by_theory || {};
+  const parts = Object.keys(THEORY_LABELS).filter((k) => tally[k]).map((k) => {
+    const v = tally[k];
+    return `${THEORY_LABELS[k]} ${v.supported} supported, ${v.not_supported} not, ${v.mixed} mixed${v.insufficient ? `, ${v.insufficient} thin` : ""}`;
+  });
+  parts.push("a verdict is scored to the theory that made the prediction, and in reverse to a rival that predicted the opposite");
+  const notSupported = card.tests.filter((t) => t.verdict === "not supported");
+  const supported = card.tests.filter((t) => t.verdict === "supported");
+  const names = (list) => list.map((t) => t.key.replace(/_/g, " ")).join(", ");
+  setStoryText("lensScorecard", "finding", `${supported.length} of ${card.tests.length} predictions hold on the record, ${notSupported.length} fail` + (notSupported.length ? ` (${names(notSupported)})` : ""));
+  setStoryText("lensScorecard", "takeaway", parts.join(" · ") + ".");
+}
+
+function renderLensUnique(d) {
+  const host = storyEl("lensUnique", "chart");
+  clearNode(host);
+  const card = d.scorecard || {};
+  const series = card.unique_variance_series || {};
+  const spec = [
+    ["identity", "Identity group (EU, Arab League, OIC, NAM)", "#009e73", "solid"],
+    ["alliance", "Alliance camp", "#0b2238", "solid"],
+    ["democracy", "Regime type", "#0072b2", "solid"],
+    ["tier", "Income tier", "#d55e00", "solid"],
+    ["all_four", "All four together", "#8a8a8a", "dot"],
+  ];
+  const smooth = (s) => s.map((_, i) => {
+    const win = s.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null);
+    return win.length >= 3 ? win.reduce((a, b) => a + b, 0) / win.length : null;
+  });
+  const traces = spec.filter(([k]) => series[k]).map(([k, name, color, dash]) => ({
+    type: "scatter", mode: "lines", name, connectgaps: false,
+    x: d.years, y: smooth(series[k]).map(pctOrNull),
+    customdata: series[k].map((v) => (v == null ? "–" : (v * 100).toFixed(0) + "%")),
+    line: { color, width: k === "all_four" ? 1.4 : 2.2, dash, shape: "spline", smoothing: 0.6 },
+    hovertemplate: `${name}: %{y:.0f}% (this year alone %{customdata})<extra></extra>`,
+  }));
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Unique variance explained, 5-year average", ticksuffix: "%", range: [0, 80] },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 90 },
+  }), PLOT_CONFIG);
+  const t = (card.tests || []).find((x) => x.key === "unique_variance");
+  if (t) {
+    setStoryText("lensUnique", "finding", t.reading.split(". ")[0]);
+    setStoryText("lensUnique", "takeaway", t.reading);
+  }
+}
+
+
+function renderLensSemiPeriphery(d) {
+  const host = storyEl("lensSemiPeriphery", "chart");
+  clearNode(host);
+  const pos = (d.scorecard || {}).tier_positions || {};
+  const smooth = (s) => (s || []).map((_, i) => {
+    const win = s.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null);
+    return win.length >= 3 ? win.reduce((a, b) => a + b, 0) / win.length : null;
+  });
+  const line = (key, name, color, dash) => ({
+    type: "scatter", mode: "lines", name, connectgaps: false,
+    x: d.years, y: smooth(pos[key]),
+    customdata: (pos[key] || []).map((v) => (v == null ? "–" : v.toFixed(2))),
+    line: { color, width: 2.2, dash: dash || "solid", shape: "spline", smoothing: 0.6 },
+    hovertemplate: `${name}: %{y:.2f} (this year alone %{customdata})<extra></extra>`,
+  });
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  Plotly.newPlot(host, [
+    line("Periphery", "Periphery (low and lower-middle income)", "#e69f00"),
+    line("Semi-periphery", "Semi-periphery (upper-middle income)", "#d55e00"),
+    line("Core", "Core (high income)", "#8a6d00", "dot"),
+    ev.trace,
+  ], storyLayout({
+    shapes: [...ev.shapes, { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#8a8a8a", width: 1 } }],
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Net support on economic items (−1 to +1), 5-year average", range: [-1, 1.05], zeroline: false },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 84 },
+  }), PLOT_CONFIG);
+  const t = (d.scorecard.tests || []).find((x) => x.key === "semi_periphery");
+  if (t) {
+    const eras = t.result.lean_by_era || {};
+    const known = Object.entries(eras).filter(([, v]) => v != null);
+    const low = known.reduce((b, e) => (e[1] < b[1] ? e : b), known[0]);
+    const high = known.reduce((b, e) => (e[1] > b[1] ? e : b), known[0]);
+    if (known.length) {
+      setStoryText("lensSemiPeriphery", "finding", `The semi-periphery sat closest to the periphery in the ${low[0]} (lean ${low[1].toFixed(2)}) and closest to the core in the ${high[0]} (lean ${high[1].toFixed(2)})`);
+    }
+    setStoryText("lensSemiPeriphery", "takeaway", t.reading);
+  }
+}
+
+function renderLensColonial(d) {
+  const host = storyEl("lensColonial", "chart");
+  clearNode(host);
+  const series = (d.scorecard || {}).colonial_line_series || {};
+  const smooth = (s) => (s || []).map((_, i) => {
+    const win = s.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null);
+    return win.length >= 3 ? win.reduce((a, b) => a + b, 0) / win.length : null;
+  });
+  const traces = [
+    {
+      type: "scatter", mode: "lines", name: "Decolonised states (the South)", connectgaps: false,
+      x: d.years, y: smooth(series.south_support), line: { color: "#e69f00", width: 2.2, shape: "spline", smoothing: 0.6 },
+      hovertemplate: "South: %{y:.2f}<extra></extra>",
+    },
+    {
+      type: "scatter", mode: "lines", name: "Former colonial powers and settler states (the North)", connectgaps: false,
+      x: d.years, y: smooth(series.north_support), line: { color: "#0b2238", width: 2.2, shape: "spline", smoothing: 0.6 },
+      hovertemplate: "North: %{y:.2f}<extra></extra>",
+    },
+    {
+      type: "scatter", mode: "lines", name: "Colonial line beyond wealth and alliance (right axis)", connectgaps: false, yaxis: "y2",
+      x: d.years, y: smooth(series.unique).map(pctOrNull), line: { color: "#8a8a8a", width: 1.6, dash: "dot", shape: "spline", smoothing: 0.6 },
+      hovertemplate: "beyond wealth and alliance: %{y:.0f}%<extra></extra>",
+    },
+  ];
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: [...ev.shapes, { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#8a8a8a", width: 1 } }],
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Net support on decolonisation items (−1 to +1)", range: [-1, 1.05], zeroline: false },
+    yaxis2: { title: "Variance explained beyond wealth and alliance", overlaying: "y", side: "right", ticksuffix: "%", range: [0, 40], showgrid: false },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 96, r: 70 },
+  }), PLOT_CONFIG);
+  const t = (d.scorecard.tests || []).find((x) => x.key === "colonial_line");
+  if (t) {
+    setStoryText("lensColonial", "finding", t.reading.split(". ")[0]);
+    setStoryText("lensColonial", "takeaway", t.reading);
   }
 }

@@ -161,13 +161,58 @@ def test_lens_timeline_has_every_lens_and_era():
     assert set(out["definitions"]) >= {"explained_variance", "index", "alliance_camps", "tiers", "regimes", "representation", "defence_pacts", "link"}
     assert len(out["caveats"]) >= 5 and len(out["sources"]) >= 4
     # the supplementary partitions and series are present for every year
-    assert set(out["partitions"]) == {"alliance", "tier", "region", "ffp", "regime", "democracy", "pact", "representation"}
+    assert set(out["partitions"]) == {"alliance", "tier", "region", "identity", "colonial", "ffp", "regime", "democracy", "pact", "representation"}
     assert out["partitions"]["democracy"][0]["raw"] is not None       # USA/GBR/IND/BRA vs SUN/POL in 1985
     assert set(out["cohesion"]) >= {"democracies", "autocracies", "pacts"}
     assert set(out["links"]) == {"democracy_rights", "representation_rights", "representation_gender"}
     assert set(out["character"]) == {"democracy_share", "liberal_democracy_share", "women_in_parliament_mean", "in_defence_pact_share"}
     assert out["cow_years"] == [1946, 2012]
     assert all(len(v) == 2 for v in out["character"].values())
+
+
+def test_identity_groups_by_year():
+    assert P.identity_group("FRA", 1960) == P.IDENTITY_EU
+    assert P.identity_group("GBR", 2019) == P.IDENTITY_EU and P.identity_group("GBR", 2021) == P.IDENTITY_NONE
+    assert P.identity_group("EGY", 1970) == P.IDENTITY_ARAB
+    assert P.identity_group("TUR", 1980) == P.IDENTITY_OIC
+    assert P.identity_group("IND", 1965) == P.IDENTITY_NAM and P.identity_group("IND", 1955) == P.IDENTITY_NONE
+    assert P.identity_group("CYP", 1990) == P.IDENTITY_NAM and P.identity_group("CYP", 2010) == P.IDENTITY_EU
+    assert P.identity_group("USA", 2000) == P.IDENTITY_NONE
+    assert P.partition_labels(["FRA", "EGY", "IND"], 1980, "oic") == {"FRA": "Not a member", "EGY": "Member", "IND": "Not a member"}
+
+
+def test_colonial_line_groups():
+    assert P.colonial_group("IND", 1960) == P.DECOLONISED_WAVE and P.former_ruler("IND") == "GBR"
+    assert P.colonial_group("DZA", 1970) == P.DECOLONISED_WAVE and P.former_ruler("DZA") == "FRA"
+    assert P.colonial_group("KOR", 1990) == P.DECOLONISED_WAVE          # partition of a Japanese colony
+    assert P.colonial_group("FRA", 1960) == P.COLONIAL_POWERS
+    assert P.colonial_group("USA", 2000) == P.COLONIAL_POWERS
+    assert P.colonial_group("ISR", 1980) == P.SETTLER_STATES
+    assert P.colonial_group("ZAF", 1980) == P.SETTLER_STATES and P.colonial_group("ZAF", 2000) == P.OLDER_EXCOLONIES
+    assert P.colonial_group("BRA", 1980) == P.OLDER_EXCOLONIES
+    assert P.colonial_group("POL", 1970) == P.NEVER_COLONISED and P.colonial_group("KAZ", 2000) == P.NEVER_COLONISED
+    assert P.partition_labels(["IND", "FRA", "BRA", "POL", "XXX"], 1960, "north_south") == {"IND": "South", "FRA": "North", "BRA": "South"}
+
+
+def test_scorecard_runs_on_a_small_frame():
+    from src.lenses_scorecard import INSUFFICIENT, MIXED, NOT_SUPPORTED, SUPPORTED, scorecard
+
+    frame = _frame()
+    out = L.lens_timeline(frame, permutations=5)
+    card = scorecard(frame, out["years"], out["partitions"], permutations=5)
+    keys = [t["key"] for t in card["tests"]]
+    assert keys == [
+        "unique_variance", "alliance_loyalty", "alignment_before_treaty", "cascade_spread", "lonely_superpower",
+        "north_south", "semi_periphery", "tier_mobility", "democracy_within_nonaligned", "gender_cleavage",
+        "colonial_line", "whose_rights", "metropole_ties", "consensus",
+    ]
+    for t in card["tests"]:
+        assert t["verdict"] in {SUPPORTED, NOT_SUPPORTED, MIXED, INSUFFICIENT}
+        assert t["prediction"] and t["measure"] and t["reading"]
+        assert set(t["tests"]) <= set(L.LENSES)
+    assert len(card["unique_variance_series"]["identity"]) == 2
+    assert len(card["tier_positions"]["lean"]) == 2 and len(card["colonial_line_series"]["gap"]) == 2
+    assert set(card["by_theory"]) <= set(L.LENSES)
 
 
 @pytest.fixture
@@ -200,3 +245,16 @@ def test_lenses_endpoint_reads_the_record(client):
     assert data["character"]["women_in_parliament_mean"][k] > 15
     assert data["links"]["democracy_rights"][k] < 0                    # freer states vote less often for recorded rights items
     assert data["partitions"]["pact"][k]["adjusted"] is not None and data["partitions"]["pact"][years.index(2015)]["adjusted"] is None
+    # the scorecard: fourteen stated tests with verdicts
+    card = data["scorecard"]
+    assert len(card["tests"]) == 14
+    semi = next(t for t in card["tests"] if t["key"] == "semi_periphery")
+    assert semi["result"]["ordered_share"] > 0.6                # core < semi-periphery < periphery most years
+    colonial = next(t for t in card["tests"] if t["key"] == "colonial_line")
+    assert colonial["result"]["gap_by_decade"]["1960s"] > 0.3   # the decolonised against the metropoles
+    loyalty = next(t for t in card["tests"] if t["key"] == "alliance_loyalty")
+    assert loyalty["result"]["USA"]["votes"] > 100          # the US is often in a small minority
+    assert loyalty["result"]["SUN"]["with"] > 0.7            # the Soviet bloc stood with Moscow (78%)
+    assert loyalty["result"]["USA"]["with"] < 0.2            # NATO allies did not (8%)
+    lead = next(t for t in card["tests"] if t["key"] == "alignment_before_treaty")
+    assert lead["result"]["median_lead"] >= 5                # alignment preceded NATO accession

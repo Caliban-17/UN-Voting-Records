@@ -9,6 +9,9 @@ Build the supplementary datasets the "Through which lens?" layer reads:
 * ``data/cow_defense_communities.csv`` — for each year to 2012, the
   modularity community of the Correlates of War defence-pact graph each
   state belongs to (see ``build_cow``), keyed by ISO-3.
+* ``data/colonial_history.csv`` — each state's former colonial ruler,
+  independence year and independence type, from the ICOW Colonial History
+  data (Hensel), keyed by ISO-3.
 
 Every output is ``code,year,...`` keyed by the ISO-3 codes the voting record
 uses, with UN lineages applied (the USSR takes Russia's V-Dem series, and so
@@ -150,7 +153,7 @@ COW_TO_ISO = {
     "COL": "COL", "VEN": "VEN", "GUY": "GUY", "SUR": "SUR", "ECU": "ECU", "PER": "PER", "BRA": "BRA",
     "BOL": "BOL", "PAR": "PRY", "CHL": "CHL", "ARG": "ARG", "URU": "URY", "RUS": "RUS", "ARM": "ARM",
     "EST": "EST", "FIN": "FIN", "NOR": "NOR", "POL": "POL", "HUN": "HUN", "ALB": "ALB", "ITA": "ITA",
-    "BEL": "BEL", "LUX": "LUX", "LIE": "LIE", "MNC": "MCO", "SNM": "SMR", "AND": "AND", "SUN": "SUN",
+    "BEL": "BEL", "LUX": "LUX", "LIE": "LIE", "MNC": "MCO", "SNM": "SMR", "AND": "AND", "SUN": "SUN", "DEN": "DNK",
 }
 
 
@@ -224,6 +227,42 @@ def build_cow(raw: Path) -> Path | None:
     return out
 
 
+# ── ICOW colonial history ────────────────────────────────────────────────────
+
+# COW codes of the overseas colonial empires whose former possessions make up
+# the post-1945 decolonisation wave (Britain, France, Spain, Portugal, the
+# Netherlands, Belgium, Italy, Germany, the United States, Japan, Denmark).
+OVERSEAS_EMPIRES = {"200", "220", "230", "235", "210", "211", "325", "255", "2", "740", "390"}
+
+
+def build_colonial(raw: Path) -> Path | None:
+    """One row per state: former ruler (ISO-3, blank when none), independence
+    year and the ICOW independence type (1 formation, 2 decolonisation,
+    3 secession, 4 partition), from ICOW Colonial History v1.1."""
+    src = next(iter(raw.rglob("coldata*.csv")), None)
+    if src is None:
+        logger.warning("no ICOW coldata csv under %s; skipping", raw)
+        return None
+    iso_of = _cow_ccode_to_iso(raw)
+    out = DATA / "colonial_history.csv"
+    n = 0
+    with src.open(encoding="utf-8-sig", errors="replace") as f, out.open("w", newline="", encoding="utf-8") as g:
+        w = csv.writer(g)
+        w.writerow(["code", "ruler", "independence_year", "independence_type", "overseas_empire"])
+        for row in csv.DictReader(f):
+            code = iso_of.get(row["State"])
+            if not code:
+                continue
+            ruler_cc = row.get("ColRuler", "-9")
+            ruler = iso_of.get(ruler_cc, "") if ruler_cc not in ("-9", "") else ""
+            ind = row.get("IndDate", "-9")
+            year = int(ind[:4]) if ind not in ("-9", "") and len(ind) >= 4 else ""
+            w.writerow([code, ruler, year, row.get("IndType", ""), int(ruler_cc in OVERSEAS_EMPIRES)])
+            n += 1
+    logger.info("wrote %s (%d rows)", out, n)
+    return out
+
+
 def fetch(raw: Path) -> None:
     raw.mkdir(parents=True, exist_ok=True)
     for name, url in SOURCES.items():
@@ -247,6 +286,7 @@ def main() -> int:
     build_vdem(args.raw)
     build_women(args.raw)
     build_cow(args.raw)
+    build_colonial(args.raw)
     return 0
 
 

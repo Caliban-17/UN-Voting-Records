@@ -206,8 +206,8 @@ def story_lenses():
     if get_df() is None:
         return make_error("Data not loaded", 500)
     try:
-        from src.lenses import lens_timeline
+        from src.lenses import lens_timeline_cached
 
-        return jsonify(lens_timeline(get_df()))
+        return jsonify(lens_timeline_cached(get_df()))
     except Exception as exc:
         return make_server_error("Story lenses error", exc)

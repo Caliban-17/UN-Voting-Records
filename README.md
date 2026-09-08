@@ -78,16 +78,24 @@ Assembly counts a majority. Logic lives in `src/story_analysis.py`; regional gro
 
 ### 🔍 Through which lens?
 
-A second story tab reads the record through competing theories of international relations. Each
-theory is treated as a set of claims about what organises the Assembly's votes, and each claim as a
-measurement run over every complete year since 1946:
+A second story tab reads the record through competing theories of international relations. Every
+theory predicts *some* structure in the votes, so a description cannot choose between them; what can
+is a prediction one theory makes and its rivals do not. The tab opens on a **scorecard** of fourteen
+such predictions with verdicts (supported, not supported, mixed, insufficient evidence), computed in
+`src/lenses_scorecard.py`: alliance loyalty when the patron stands alone, alignment before or after
+the treaty, unique explained variance with alliance, wealth, regime and identity held at once, norm
+cascades across tiers, the lonely superpower, North–South persistence, the semi-periphery's lean and
+the promoted states, democracies among the non-aligned, the gender cleavage, the colonial line,
+whose rights, metropole ties, and consensus as internalisation. Below it, each theory is a set of
+measurements run over every complete year since 1946:
 
 | Lens | Partition it predicts | Components of its fingerprint |
 |---|---|---|
 | Realism | treaty alliances (NATO and US bilateral treaties; the Warsaw Pact and CSTO), checked against Correlates of War defence-pact communities to 2012 | alliances' explained variance, on all items and on security items; camp cohesion; security agenda share |
 | Liberalism | regime type (V-Dem's Regimes of the World: democracies vs autocracies) | agreement across members; share of lopsided votes; institution-building agenda share; democracies' explained variance, on all and on rights items; democracy cohesion |
-| World-systems | income tiers (World Bank: core, semi-periphery, periphery) | tiers' explained variance, on all and on economic items; core cohesion; economic agenda share |
-| Constructivism | the UN's regional groups | groups' explained variance, on all and on rights items; normative agenda share; support for norm-cascade resolutions |
+| World-systems | income tiers (World Bank: core, semi-periphery, periphery) | tiers' explained variance, on all and on economic items; whether the tiers are ordered core < semi-periphery < periphery on economic items; core cohesion; economic agenda share |
+| Constructivism | self-constituted identity groups (EU, Arab League, OIC, Non-Aligned Movement, by year of membership) | identity's explained variance, on all and on rights items, and beyond alliance, wealth and regime; normative agenda share; support for norm-cascade resolutions |
+| Post-colonial / critical | the colonial line (ICOW Colonial History: former colonial powers and settler states, the post-1945 decolonised, older ex-colonies, never colonised) | the line's explained variance, on all and on decolonisation items, and beyond wealth and alliance; the North–South gap on decolonisation items; decolonisation agenda share |
 | Feminist IR | states with a declared feminist foreign policy; members in thirds by women's share of parliament | gender agenda share; support on gender votes; the cohort's cohesion and explained variance; representation's explained variance and its link to rights votes |
 
 Two further readings sit beside the lenses: the membership's own character by year (share of
@@ -101,8 +109,9 @@ room"); the five indices are each scaled to their own range and read as "how pro
 lens's signature this year", with the most pronounced lens named per decade. Proxies and caveats
 are printed on the page. Logic: `src/lenses.py`; partitions: `src/lenses_partitions.py`. The
 supplementary datasets (World Bank income groups, V-Dem regimes via Our World in Data, IPU and
-V-Dem women-in-parliament shares, Correlates of War alliances) are built into `data/` by
-`scripts/build_supplementary.py`; sources and licences are listed in `data/supplementary_sources.md`.
+V-Dem women-in-parliament shares, Correlates of War alliances, ICOW colonial history) are built into
+`data/` by `scripts/build_supplementary.py`; the adoption-type table for sessions 74–80 comes from the
+DGACM extracts; sources and licences are listed in `data/supplementary_sources.md`.
 
 ### 🏁 Country Profile
 

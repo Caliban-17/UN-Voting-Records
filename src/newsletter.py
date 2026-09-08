@@ -211,6 +211,11 @@ class NewsletterEdition:
     # The week ahead: where the session stands and which recurring votes are
     # due (src.session_calendar). Forward-looking, so outside content_hash.
     calendar: dict = field(default_factory=dict)
+    # Through which lens: the era's most pronounced theory, the scorecard's
+    # verdicts and, in a country edition, where the country sits in each
+    # partition (src.lenses, src.lenses_scorecard). Whole-record context,
+    # so outside content_hash and optional in old archives.
+    lenses: dict = field(default_factory=dict)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -729,6 +734,110 @@ def _calendar_panel(df: pd.DataFrame, edition_date: Optional[str]) -> dict:
         return {}
 
 
+LENS_VERDICT_PRIORITY = (
+    "alliance_loyalty", "lonely_superpower", "colonial_line", "semi_periphery", "alignment_before_treaty",
+    "democracy_within_nonaligned", "north_south", "consensus", "unique_variance", "whose_rights",
+    "metropole_ties", "tier_mobility", "cascade_spread", "gender_cleavage",
+)
+
+
+def _lens_panel(df: pd.DataFrame, country_focus: Optional[str], name_lookup, max_verdicts: int = 4) -> dict:
+    """The record read through the theories: the decade's most pronounced
+    lens, up to four verdicts from the scorecard, the tally by theory and, in
+    a country edition, the country's coordinates. Any failure is swallowed;
+    the section is context and must never sink an edition."""
+    try:
+        from src.lenses import LENS_LABELS, lens_timeline_cached
+        from src import lenses_partitions as parts
+        from src.regional_groups import regional_group
+
+        timeline = lens_timeline_cached(df)
+        year = timeline.get("last_full_year")
+        eras = timeline.get("eras") or []
+        card = timeline.get("scorecard") or {}
+        tests = {t["key"]: t for t in card.get("tests", [])}
+        if not year or not eras or not tests:
+            return {}
+        era = eras[-1]
+        chosen = []
+        for key in LENS_VERDICT_PRIORITY:
+            t = tests.get(key)
+            if t and t["verdict"] != "insufficient evidence":
+                chosen.append({
+                    "key": key,
+                    "theories": [LENS_LABELS.get(t["theory"], t["theory"])],
+                    "rivals": [LENS_LABELS.get(k, k) for k in t.get("rivals", [])],
+                    "prediction": t["prediction"],
+                    "verdict": t["verdict"],
+                    "reading": t["reading"],
+                })
+            if len(chosen) == max_verdicts:
+                break
+        tally = {}
+        for lens, counts in (card.get("by_theory") or {}).items():
+            tally[LENS_LABELS.get(lens, lens)] = {
+                "supported": int(counts.get("supported", 0)),
+                "not_supported": int(counts.get("not_supported", 0)),
+                "mixed": int(counts.get("mixed", 0)),
+            }
+        character = timeline.get("character") or {}
+        years = timeline.get("years") or []
+        idx = years.index(year) if year in years else -1
+        char = {}
+        if idx >= 0:
+            dem = (character.get("democracy_share") or [None])[idx] if idx < len(character.get("democracy_share") or []) else None
+            women = (character.get("women_in_parliament_mean") or [None])[idx] if idx < len(character.get("women_in_parliament_mean") or []) else None
+            char = {"year": year, "democracy_share": dem, "women_share": women}
+        focus = {}
+        if country_focus:
+            code = country_focus.upper()
+            regime = parts.regime_type(code, year)
+            tier = parts.world_system_tier(code, year)
+            coords = []
+            if regime is not None:
+                coords.append(parts.REGIME_LABELS[regime].lower() + " (V-Dem)")
+            camp = parts.alliance_camp(code, year)
+            coords.append({"US-led": "in the US-led alliance camp", "Soviet/Russian-led": "in the Russian-led alliance camp"}.get(camp, "outside both alliance camps"))
+            if tier:
+                coords.append({"Core": "core", "Semi-periphery": "semi-periphery", "Periphery": "periphery"}[tier] + " by income")
+            identity = parts.identity_group(code, year)
+            if identity != parts.IDENTITY_NONE:
+                coords.append("a member of the " + {"European Union": "European Union", "Arab League": "Arab League", "Islamic Cooperation": "Organisation of Islamic Cooperation", "Non-Aligned": "Non-Aligned Movement"}.get(identity, identity))
+            colonial = parts.colonial_group(code, year)
+            if colonial:
+                coords.append(colonial.lower() + " on the colonial line")
+            group = regional_group(code)
+            if group and group != "Other":
+                coords.append(group)
+            women = parts.women_in_parliament(code, year)
+            if women is not None:
+                coords.append(f"women hold {women:.0f}% of parliamentary seats")
+            focus = {"code": code, "name": _name(code, name_lookup), "coordinates": coords}
+        top = era.get("top_label", "")
+        close = era.get("close_label", "")
+        takeaway = (
+            f"By deed, the {era['label']} read as {top.lower()}"
+            + (f", with {close.lower()} close behind" if close else "")
+            + ": the lens whose signature is most pronounced this decade compared with its own history."
+        )
+        return {
+            "year": int(year),
+            "era": {"label": era["label"], "top": top, "close": close},
+            "verdicts": chosen,
+            "tally": tally,
+            "character": char,
+            "focus": focus,
+            "takeaway": takeaway,
+            "caveat": (
+                "Recorded votes only, with proxies for every partition; a verdict is about one prediction "
+                "on one record. Method, sources and every test: the site's 'Through which lens' tab."
+            ),
+        }
+    except Exception as exc:  # noqa: BLE001 — context is optional by design
+        logger.warning("lens panel skipped: %s", exc)
+        return {}
+
+
 def _prior_ledger_record(country_focus: Optional[str]) -> Optional[dict]:
     """The last published edition for this focus, from the committed ledger."""
     try:
@@ -882,6 +991,7 @@ def build_newsletter_edition(
     big_picture = _big_picture_stats(df, int(recent_year), name_lookup)
     this_week = _this_week_panel(df, name_lookup, edition_date)
     calendar = _calendar_panel(df, edition_date)
+    lenses = _lens_panel(df, country_focus, name_lookup)
     _annotate_big_picture_deltas(big_picture, _prior_ledger_record(country_focus))
 
     # ── By the numbers ─────────────────────────────────────────────────────
@@ -1005,6 +1115,8 @@ def build_newsletter_edition(
         toc_titles.append(("resolution-spotlight", "Resolution Spotlight"))
     if quiet:
         toc_titles.append(("quiet-convergences", "Quiet Convergences"))
+    if lenses.get("verdicts"):
+        toc_titles.append(("through-which-lens", "Through Which Lens"))
     toc_titles.append(("next-to-watch", "Next to Watch"))
     toc_titles.append(("methodology", "Methodology & Sources"))
     if this_week.get("votes"):
@@ -1189,6 +1301,7 @@ def build_newsletter_edition(
         big_picture=big_picture,
         this_week=this_week,
         calendar=calendar,
+        lenses=lenses,
         lead_story=lead_story,
         lead_story_why_it_matters=lead_why,
         top_movers=top_movers,
@@ -1285,4 +1398,5 @@ def edition_from_dict(payload: dict) -> NewsletterEdition:
         big_picture=payload.get("big_picture") or {},
         this_week=payload.get("this_week") or {},
         calendar=payload.get("calendar") or {},
+        lenses=payload.get("lenses") or {},
     )

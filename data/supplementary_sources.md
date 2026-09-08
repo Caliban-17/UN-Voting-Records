@@ -24,3 +24,8 @@ Citations:
 The COW site refuses non-browser downloads; the copy used was the unmodified
 dyad-year CSV published in the `joshloyal/dynetlsm` repository (identical
 schema and row count to v4.1).
+
+| `colonial_history.csv` | each state's former colonial ruler (ISO-3), independence year and ICOW independence type (1 formation, 2 decolonisation, 3 secession, 4 partition), and whether the ruler was an overseas empire | ICOW Colonial History Data Set v1.1 (Hensel 2018), `coldata110.csv`, via the COW state list for the code crosswalk | free for research with citation |
+| `consensus_by_session.csv` | per session 74–80 and theme, the number of resolutions and the number adopted without a vote | DGACM extracts, `UNxml/GAresolutions` `data_extract/<session>.json`, field `adoption_type` | UN, for informational purposes |
+
+- Hensel, Paul R. 2018. "ICOW Colonial History Data Set, version 1.1." http://www.paulhensel.org/icowcol.html

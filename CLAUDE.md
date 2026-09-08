@@ -52,9 +52,13 @@ src/                       Analysis + newsletter library (no Flask imports here)
                            typical dates of recurring votes, votes just landed
   lenses.py                Through which lens: explained variance by partition, cohesion,
                            agenda shares, norm cascades, per-lens indices, eras
-  lenses_partitions.py     Year-aware partitions: curated alliance camps and the feminist-
-                           foreign-policy cohort; income tiers, regime type, women's
-                           representation and COW defence-pact communities read from data/
+  lenses_scorecard.py      The scorecard: fourteen discriminating tests (alliance loyalty,
+                           alignment before treaty, unique variance, cascades, the lonely
+                           superpower, semi-periphery, colonial line, ...) with verdicts
+  lenses_partitions.py     Year-aware partitions: curated alliance camps, identity groups
+                           (EU, Arab League, OIC, NAM) and the feminist-foreign-policy cohort;
+                           income tiers, regime type, women's representation, COW defence-pact
+                           communities and the ICOW colonial line read from data/
   regional_groups.py       UN regional groups by ISO-3 (+ historical states, lineages)
   data_processing.py       CSV/parquet loading, schema normalisation, vote matrix, entropy
   country_display.py       ISO-3 -> editorial names ("Iran", "North Korea") + title_case_name()
