@@ -31,9 +31,25 @@ def _client_fingerprint() -> str:
     return remote or request.remote_addr or "unknown"
 
 
+_last_sweep = 0.0
+
+
+def _sweep_stale_buckets(now: float) -> None:
+    """Drop buckets with no hits inside the window (at most once per window).
+    Without this the dict grows by one entry per (client, method, path) forever."""
+    global _last_sweep
+    if now - _last_sweep < RATE_LIMIT_WINDOW_SEC:
+        return
+    _last_sweep = now
+    cutoff = now - RATE_LIMIT_WINDOW_SEC
+    for key in [k for k, b in _rate_buckets.items() if not b or b[-1] < cutoff]:
+        del _rate_buckets[key]
+
+
 def _is_rate_limited(key: str) -> bool:
     now = time.time()
     with _rate_lock:
+        _sweep_stale_buckets(now)
         bucket = _rate_buckets[key]
         cutoff = now - RATE_LIMIT_WINDOW_SEC
         while bucket and bucket[0] < cutoff:
@@ -97,7 +113,9 @@ def register_middleware(app: Flask) -> None:
     def add_security_headers(response):
         csp = (
             "default-src 'self'; "
-            "script-src 'self' https://cdn.plot.ly https://cdn.jsdelivr.net; "
+            # Plotly and axios are vendored under static/vendor/, so no CDN is
+            # allowed to run script here. Add a host only if you add a CDN tag.
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
             "font-src 'self' https://cdnjs.cloudflare.com data:; "
             "img-src 'self' data: blob:; "

@@ -25,7 +25,7 @@ bp = Blueprint("jobs", __name__)
 
 @bp.route("/<job_id>")
 def get_job_status(job_id: str):
-    from app.services import get_df, _cleanup_jobs
+    from app.services import _cleanup_jobs
 
     _cleanup_jobs()
     with job_lock:

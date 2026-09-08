@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import logging
-import re
 from io import BytesIO
-from collections import defaultdict
 
-from flask import Blueprint, jsonify, render_template, request, Response, send_file
+from pathlib import Path
+
+from flask import (
+    Blueprint,
+    current_app,
+    jsonify,
+    render_template,
+    request,
+    Response,
+    send_file,
+)
 
 from app.services import (
     country_names,
@@ -22,7 +30,7 @@ from src.cache_utils import cached_api
 from src.coalition import build_coalition
 from src.country_profile import build_country_profile
 from src.drift_analysis import compose_drift_digest, find_alignment_drifts
-from src.newsletter import build_newsletter_edition, edition_to_dict
+from src.newsletter import build_newsletter_edition, edition_to_dict, pick_recent_year
 from src.newsletter_archive import (
     list_editions as archive_list_editions,
     read_edition as archive_read_edition,
@@ -109,7 +117,7 @@ def _build_markdown_report(start_year: int, end_year: int) -> dict:
     lines: list[str] = []
     lines.append("# UN Voting Intelligence Report")
     lines.append("")
-    lines.append(f"## Coverage")
+    lines.append("## Coverage")
     lines.append(f"- Window: {start_year} to {end_year}")
     lines.append(f"- Total votes: {total_votes}")
     lines.append(f"- Countries represented: {total_countries}")
@@ -212,9 +220,33 @@ def _markdown_to_pdf(markdown: str) -> BytesIO:
     return stream
 
 
+_ASSET_FILES = ("js/app.js", "css/style.css")
+_asset_cache: dict = {"key": None, "version": "0"}
+
+
+def _asset_version() -> str:
+    """Short content hash of the frontend files, appended as ``?v=`` to their
+    URLs so a browser never keeps serving a stale app.js/style.css after a
+    deploy. Recomputed only when a file's mtime/size changes."""
+    static_dir = Path(current_app.static_folder or "static")
+    paths = [static_dir / rel for rel in _ASSET_FILES]
+    try:
+        key = tuple((p.stat().st_mtime_ns, p.stat().st_size) for p in paths)
+    except OSError:
+        return _asset_cache["version"]
+    if key != _asset_cache["key"]:
+        import hashlib
+
+        digest = hashlib.sha1()
+        for p in paths:
+            digest.update(p.read_bytes())
+        _asset_cache.update(key=key, version=digest.hexdigest()[:10])
+    return _asset_cache["version"]
+
+
 @bp.route("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", asset_v=_asset_version())
 
 
 @bp.route("/health")
@@ -258,8 +290,6 @@ def get_data_summary():
 
 @bp.route("/api/insights", methods=["GET", "POST"])
 def get_insights():
-    import pandas as pd
-
     if get_df() is None:
         return make_error("Data not loaded", 500)
     try:
@@ -434,7 +464,7 @@ def alignment_drift():
     try:
         min_year, max_year = get_year_bounds()
         args = request.args
-        recent_year = int(args.get("recent_year", max_year))
+        recent_year = int(args.get("recent_year") or pick_recent_year(get_df()))
         baseline_window = int(args.get("baseline_window", 5))
         top_n = max(1, min(50, int(args.get("top", 10))))
         direction = str(args.get("direction", "all")).lower()
@@ -493,7 +523,7 @@ def newsletter_weekly():
     """Reproducible weekly UN-voting newsletter.
 
     Query params:
-      - recent_year (int, default: max year in data)
+      - recent_year (int, default: latest year with enough recorded votes)
       - baseline_window (int, default: 3) — years to compare against
       - topics (csv str)              — override the default watched topics
       - format (json | markdown | html, default: json)
@@ -503,7 +533,7 @@ def newsletter_weekly():
     try:
         min_year, max_year = get_year_bounds()
         args = request.args
-        recent_year = int(args.get("recent_year", max_year))
+        recent_year = int(args.get("recent_year") or pick_recent_year(get_df()))
         baseline_window = int(args.get("baseline_window", 3))
         fmt = str(args.get("format", "json")).lower()
         if fmt not in {"json", "markdown", "md", "html", "text", "txt"}:
@@ -528,6 +558,12 @@ def newsletter_weekly():
             watched = DEFAULT_WATCHED_TOPICS
 
         country_focus = args.get("country")
+        edition_date = (args.get("edition_date") or "").strip() or None
+        if edition_date is not None:
+            import re as _re
+
+            if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", edition_date):
+                return make_error("edition_date must be YYYY-MM-DD", 400)
         if country_focus:
             country_focus = normalize_country_code(country_focus)
 
@@ -538,6 +574,7 @@ def newsletter_weekly():
             watched_topics=watched,
             name_lookup=country_names(),
             country_focus=country_focus,
+            edition_date=edition_date,
         )
 
         if fmt in ("markdown", "md"):
@@ -610,7 +647,7 @@ def newsletter_archive_save():
     try:
         min_year, max_year = get_year_bounds()
         args = request.args
-        recent_year = int(args.get("recent_year", max_year))
+        recent_year = int(args.get("recent_year") or pick_recent_year(get_df()))
         baseline_window = int(args.get("baseline_window", 3))
         if not (min_year < recent_year <= max_year):
             return make_error(
@@ -746,7 +783,7 @@ def alignment_drift_digest():
     try:
         min_year, max_year = get_year_bounds()
         args = request.args
-        recent_year = int(args.get("recent_year", max_year))
+        recent_year = int(args.get("recent_year") or pick_recent_year(get_df()))
         baseline_window = int(args.get("baseline_window", 5))
         top_n = max(3, min(20, int(args.get("top", 6))))
         if not (min_year < recent_year <= max_year):

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import json
-from collections import defaultdict
 
 from flask import Blueprint, jsonify, request
 
@@ -28,7 +27,6 @@ from src.abstention_analysis import calculate_abstention_rates
 from src.pivotality_analysis import calculate_pivotality_index
 from src.sankey_analysis import build_sankey_timeline
 from src.network_viz import plot_bloc_sankey
-import json
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("analysis", __name__)

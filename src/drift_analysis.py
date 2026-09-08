@@ -349,7 +349,7 @@ def compose_drift_digest(
         )
     if para2_bullets:
         para2 = (
-            f"Other notable shifts: " + "; ".join(para2_bullets) + "."
+            "Other notable shifts: " + "; ".join(para2_bullets) + "."
         )
     else:
         para2 = "No other significant shifts beyond the lead pair."

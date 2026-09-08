@@ -17,7 +17,7 @@ from app.services import (
     compute_soft_power_trends_payload,
 )
 from src.cache_utils import cached_api
-from src.main import preprocess_for_similarity, calculate_similarity
+from src.main import preprocess_for_similarity
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("visualization", __name__)

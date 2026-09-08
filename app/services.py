@@ -15,7 +15,6 @@ import threading
 import time
 import uuid
 import json
-from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
@@ -36,7 +35,6 @@ df_global: Optional[pd.DataFrame] = None
 
 def get_df() -> Optional[pd.DataFrame]:
     """Retrieve the global DataFrame to avoid stale imports."""
-    global df_global
     return df_global
 
 
@@ -621,7 +619,6 @@ def compute_soft_power_trends_payload(
     end_year: int,
     progress: Optional[Callable] = None,
 ) -> dict:
-    import json
     from src.soft_power import track_soft_power_over_time
     from src.network_viz import plot_soft_power_trends
 
@@ -659,7 +656,6 @@ def compute_network_animation_payload(
     window: str,
     progress: Optional[Callable] = None,
 ) -> dict:
-    import json
     from src.network_analysis import build_network_over_time
     from src.network_viz import plot_network_animation
 

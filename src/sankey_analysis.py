@@ -1,7 +1,6 @@
 import pandas as pd
-import numpy as np
 import logging
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 from src.main import calculate_similarity, perform_clustering
 
 logger = logging.getLogger(__name__)

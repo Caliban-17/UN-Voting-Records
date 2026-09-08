@@ -7,8 +7,20 @@ from src.config import (
     VOTE_ENCODING,
     MAX_ROWS_TO_LOAD,
 )
+from src.country_display import title_case_name
 
 logger = logging.getLogger(__name__)
+
+
+def _title_case_names(series: pd.Series) -> pd.Series:
+    """Vectorised :func:`title_case_name` — cases each distinct raw name once.
+
+    ``str.title()`` was used here before and produced "Lao People'S Democratic
+    Republic" / "Sao Tome And Principe".
+    """
+    raw = series.astype(str).str.strip()
+    mapping = {value: title_case_name(value) for value in raw.unique()}
+    return raw.map(mapping)
 
 
 def _apply_post_load_transformations(df: pd.DataFrame) -> None:
@@ -40,7 +52,7 @@ def _apply_post_load_transformations(df: pd.DataFrame) -> None:
 
     # Country name — title case, fall back to identifier
     if "country_name" in df.columns:
-        df["country_name"] = df["country_name"].astype(str).str.strip().str.title()
+        df["country_name"] = _title_case_names(df["country_name"])
     else:
         df["country_name"] = df["country_identifier"]
 
@@ -215,9 +227,7 @@ def _load_and_preprocess_data_impl(file_path, use_cache=True):
 
         # Process Country Name — title case for display, keep raw if absent.
         if "country_name" in df.columns:
-            df["country_name"] = (
-                df["country_name"].astype(str).str.strip().str.title()
-            )
+            df["country_name"] = _title_case_names(df["country_name"])
         else:
             df["country_name"] = df["country_identifier"]
 

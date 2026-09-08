@@ -7,6 +7,7 @@ from src.country_display import (
     _strip_parenthetical,
     display_lookup,
     display_name,
+    title_case_name,
 )
 
 
@@ -53,3 +54,26 @@ def test_display_lookup_applies_to_full_map():
     assert out["PRK"] == "North Korea"
     assert out["USA"] == "United States"  # override wins over raw form
     assert out["XYZ"] == "Somewhere"  # fallback strip
+
+
+# ── title_case_name ──────────────────────────────────────────────────────────
+
+
+def test_title_case_name_fixes_str_title_artefacts():
+    assert title_case_name("LAO PEOPLE'S DEMOCRATIC REPUBLIC") == "Lao People's Democratic Republic"
+    assert title_case_name("SAO TOME AND PRINCIPE") == "Sao Tome and Principe"
+    assert title_case_name("DEMOCRATIC REPUBLIC OF THE CONGO") == "Democratic Republic of the Congo"
+
+
+def test_title_case_name_keeps_leading_connective_hyphens_and_parentheticals():
+    assert title_case_name("THE FORMER YUGOSLAV REPUBLIC OF MACEDONIA") == "The Former Yugoslav Republic of Macedonia"
+    assert title_case_name("TIMOR-LESTE") == "Timor-Leste"
+    assert title_case_name("IRAN (ISLAMIC REPUBLIC OF)") == "Iran (Islamic Republic of)"
+
+
+def test_title_case_name_is_idempotent_and_tolerates_empty():
+    assert title_case_name("Côte d'Ivoire") == "Côte d'Ivoire"
+    twice = title_case_name(title_case_name("SAINT VINCENT AND THE GRENADINES"))
+    assert twice == "Saint Vincent and the Grenadines"
+    assert title_case_name("") == ""
+    assert title_case_name(None) == ""

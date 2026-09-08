@@ -107,3 +107,42 @@ def display_lookup(raw_lookup: dict[str, str] | None) -> dict[str, str]:
     if not raw_lookup:
         return {}
     return {code: display_name(code, name) for code, name in raw_lookup.items()}
+
+
+# Words kept lowercase inside a name (never at the start): "Bosnia and
+# Herzegovina", "Republic of Korea", "Saint Vincent and the Grenadines".
+_LOWERCASE_CONNECTIVES = frozenset(
+    {"and", "of", "the", "da", "de", "del", "di", "du", "la", "le", "y"}
+)
+
+
+def _cap_word(word: str) -> str:
+    """Capitalise the first letter of ``word`` and lowercase the rest, keeping
+    apostrophes sane: "PEOPLE'S" -> "People's", "D'IVOIRE" -> "d'Ivoire"."""
+    if len(word) > 2 and word[1] == "'":
+        return word[0].lower() + "'" + _cap_word(word[2:])
+    out, seen_alpha = [], False
+    for ch in word:
+        if ch.isalpha() and not seen_alpha:
+            out.append(ch.upper())
+            seen_alpha = True
+        else:
+            out.append(ch.lower())
+    return "".join(out)
+
+
+def title_case_name(name: str) -> str:
+    """Title-case a UN long-form country name without ``str.title``'s artefacts.
+
+    ``"LAO PEOPLE'S DEMOCRATIC REPUBLIC".title()`` yields
+    ``"Lao People'S Democratic Republic"``, and ``"SAO TOME AND PRINCIPE"``
+    becomes ``"Sao Tome And Principe"``. This keeps connectives lowercase,
+    capitalises after hyphens, and is idempotent on already-cased input.
+    """
+    out = []
+    for i, word in enumerate(str(name or "").strip().split()):
+        if i and word.strip("()").lower() in _LOWERCASE_CONNECTIVES:
+            out.append(word.lower())
+        else:
+            out.append("-".join(_cap_word(part) for part in word.split("-")))
+    return " ".join(out)
