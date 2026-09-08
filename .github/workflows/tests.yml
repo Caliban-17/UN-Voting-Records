@@ -36,6 +36,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Lint (flake8)
+        run: flake8 app src web_app.py scripts
+
       # The full UN dataset (data/*.csv) is gitignored, so it is absent here.
       # tests/conftest.py detects that and skips the data-dependent Flask
       # endpoint tests automatically; the logic/unit suite (synthetic fixtures)

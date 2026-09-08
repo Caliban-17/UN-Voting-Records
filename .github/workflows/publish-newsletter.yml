@@ -98,9 +98,14 @@ jobs:
         run: |
           set -e
           mkdir -p data
+          # Sort on publishedAt, never createdAt: GitHub sets a release's
+          # createdAt to the date of the COMMIT it points at, so back-to-back
+          # releases cut from an unchanged main all tie, and jq's stable sort
+          # would hand `last` the OLDEST of them (this pinned both workflows
+          # to data-2026-06-29 for two months).
           LATEST_TAG=$(gh release list --limit 100 \
-            --json tagName,createdAt \
-            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.createdAt) | last.tagName')
+            --json tagName,publishedAt \
+            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
           if [ -n "$LATEST_TAG" ]; then
             echo "Using latest data release: $LATEST_TAG"
             gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
@@ -212,6 +217,13 @@ jobs:
         # hasn't moved since the last edition we actually sent, skip.
         id: gate
         if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
+        env:
+          # Weeks without a published edition (for this focus) before the skip
+          # is escalated to a visible warning. Quiet streaks are normal in the
+          # off-season, but they are also exactly what a broken refresh looks
+          # like — both workflows once silently pinned themselves to a June
+          # release for two months while every run stayed green.
+          QUIET_WEEKS_WARN: "6"
         run: |
           python - <<'PY'
           import json, os, sys
@@ -232,8 +244,29 @@ jobs:
                   f"::warning::Data unchanged since {prior['slug']} "
                   f"({prior.get('edition_date')}). Nothing to publish this week."
               )
+              # Consecutive-skip alarm (see QUIET_WEEKS_WARN above).
+              from datetime import datetime, timezone
+              quiet_weeks = 0
+              try:
+                  published = datetime.strptime(
+                      prior["published_at"], "%Y-%m-%dT%H:%M:%SZ"
+                  ).replace(tzinfo=timezone.utc)
+                  quiet_weeks = (datetime.now(timezone.utc) - published).days // 7
+              except (KeyError, TypeError, ValueError):
+                  pass
+              threshold = int(os.environ.get("QUIET_WEEKS_WARN") or 6)
+              if quiet_weeks >= threshold:
+                  focus_label = country_focus or "global"
+                  print(
+                      f"::warning title=Newsletter quiet for {quiet_weeks} weeks::"
+                      f"No {focus_label} edition has been published since "
+                      f"{prior.get('edition_date')}. If the UN is in session, check "
+                      f"that refresh-data.yml is adding rows and that this run "
+                      f"resolved the newest data release."
+                  )
               with open(os.environ["GITHUB_OUTPUT"], "a") as f:
                   f.write("skip=true\n")
+                  f.write(f"quiet_weeks={quiet_weeks}\n")
               sys.exit(0)
           prev = prior["content_hash"][:12] + "…" if prior else "none"
           print(
@@ -360,6 +393,7 @@ jobs:
         if: ${{ always() }}
         env:
           GATE_SKIP: ${{ steps.gate.outputs.skip }}
+          QUIET_WEEKS: ${{ steps.gate.outputs.quiet_weeks }}
           DRY_RUN: ${{ inputs.dry_run }}
           JOB_STATUS: ${{ job.status }}
         run: |
@@ -386,6 +420,9 @@ jobs:
               outcome = f"🧪 **Dry run** — composed `{slug}`, no email sent."
           elif skip == "true":
               outcome = "⏭️ **Skipped** — data unchanged since the last published edition; no email sent."
+              quiet = int(os.environ.get("QUIET_WEEKS") or 0)
+              if quiet >= 6:
+                  outcome += f"\n\n⚠️ **Quiet for {quiet} weeks** — normal off-season, but verify the data refresh if the UN is in session."
           elif skip == "false":
               outcome = f"📤 **Published** `{slug}` — emailed to the Substack inbox and recorded in the ledger."
           else:

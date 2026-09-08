@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from src.config import UN_VOTES_CSV_PATH
+
+# Force a headless matplotlib backend before any test module imports pyplot:
+# the default macOS backend crashes the interpreter under pytest. CI sets
+# MPLBACKEND=Agg explicitly; this makes local runs match. (Nothing imported
+# above pulls in matplotlib, so this is early enough.)
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 
 def _real_dataset_available() -> bool:

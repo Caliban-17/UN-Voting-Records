@@ -21,6 +21,7 @@ def test_prediction_issues(client):
     assert len(data["issues"]) > 0
 
 
+@pytest.mark.slow  # trains a RandomForest on the full dataset (~45 CPU-min)
 def test_train_model(client):
     """Test model training endpoint"""
     # Use a small range for speed
@@ -37,6 +38,7 @@ def test_train_model(client):
     assert "report" in data
 
 
+@pytest.mark.slow  # trains a RandomForest on the full dataset (~45 CPU-min)
 def test_predict_vote(client):
     """Test vote prediction endpoint"""
     # First ensure model is trained

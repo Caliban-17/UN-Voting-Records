@@ -160,10 +160,13 @@ def _run(
     # merge can never destroy your source data again.
     from datetime import datetime as _dt
 
-    out_path = (output if output else source_path).resolve()
     ts = _dt.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    candidate_path = source_path.with_name(
-        f"{source_path.stem}.refreshed-{ts}.csv"
+    # --output overrides the candidate location; the default is a
+    # date-stamped sibling of the source.
+    candidate_path = (
+        Path(output).resolve()
+        if output
+        else source_path.with_name(f"{source_path.stem}.refreshed-{ts}.csv")
     )
 
     candidate_path.parent.mkdir(parents=True, exist_ok=True)

@@ -56,9 +56,14 @@ jobs:
         run: |
           set -e
           mkdir -p data
+          # Sort on publishedAt, never createdAt: GitHub sets a release's
+          # createdAt to the date of the COMMIT it points at, so back-to-back
+          # releases cut from an unchanged main all tie, and jq's stable sort
+          # would hand `last` the OLDEST of them (this pinned both workflows
+          # to data-2026-06-29 for two months).
           LATEST_TAG=$(gh release list --limit 100 \
-            --json tagName,createdAt \
-            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.createdAt) | last.tagName')
+            --json tagName,publishedAt \
+            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
           if [ -n "$LATEST_TAG" ]; then
             echo "Using latest data release: $LATEST_TAG"
             gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
@@ -117,6 +122,28 @@ jobs:
           else
             echo "::notice::Refresh produced 0 new rows — skipping release creation."
           fi
+
+      # ── Keep the release list short ─────────────────────────────────────────
+      # Every data release carries the full ~360 MB CSV, and one used to be cut
+      # weekly even when nothing changed. Keep the newest KEEP_DATA_RELEASES (by
+      # publish date) and delete the rest, tags included. Runs even on weeks
+      # with no new release, so the backlog drains by itself.
+      - name: Prune old data releases
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP_DATA_RELEASES: "4"
+        run: |
+          set -e
+          gh release list --limit 200 --json tagName,publishedAt \
+            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | reverse | .[] | .tagName' \
+            | tail -n +"$((KEEP_DATA_RELEASES + 1))" \
+            | while read -r tag; do
+                [ -z "$tag" ] && continue
+                echo "Deleting old data release $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
+          echo "Kept the newest $KEEP_DATA_RELEASES data releases."
 
       - name: Upload candidate as workflow artifact (backup)
         if: ${{ hashFiles('data/*.archived-*.csv') != '' || hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}

@@ -136,3 +136,30 @@ def test_composed_edition_anchors_on_full_year_not_sparse_max():
     assert composed.recent_year == 2025
     assert composed.content_hash == explicit.content_hash
     assert composed.content_hash != max_year.content_hash
+
+
+# ── data-release resolution ──────────────────────────────────────────────────
+
+REFRESH_WORKFLOW_PATH = Path(".github/workflows/refresh-data.yml")
+
+
+def _all_step_runs(path: Path) -> str:
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return "\n".join(
+        _strip_comments(str(step.get("run", "")))
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+    )
+
+
+def test_latest_data_release_is_resolved_by_publish_date():
+    """A release's ``createdAt`` is the date of the COMMIT it points at, not
+    when it was cut. Weekly releases from an unchanged main all tie on it,
+    jq's stable sort keeps the API's newest-first order, and ``last`` hands
+    back the OLDEST tied release — which silently pinned both workflows to
+    data-2026-06-29 for two months. Resolve by ``publishedAt`` instead.
+    """
+    for path in (WORKFLOW_PATH, REFRESH_WORKFLOW_PATH):
+        code = _all_step_runs(path)
+        assert "sort_by(.createdAt)" not in code, f"{path}: sorts releases on createdAt"
+        assert "sort_by(.publishedAt)" in code, f"{path}: must sort data releases on publishedAt"

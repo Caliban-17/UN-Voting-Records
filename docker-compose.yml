@@ -1,26 +1,21 @@
-version: '3.8'
-
 services:
   un-voting-app:
     build: .
     container_name: un-voting-analyzer
     ports:
-      - "8080:5000"
+      - "8080:5001"
     volumes:
-      - .:/app
       - ./data:/app/data
       - ./.cache:/app/.cache
-      - ./output.log:/app/output.log
     environment:
+      - PORT=5001
       - CACHE_DIR=.cache
       - CACHE_TTL_HOURS=24
-      - ENABLE_AUTO_UPDATE=true
-      - AUTO_UPDATE_CRON=0 2 * * *
       - LOG_LEVEL=INFO
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      test: ["CMD", "python", "-c", "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:5001/health', timeout=8).status == 200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 90s
