@@ -16,9 +16,6 @@ from __future__ import annotations
 
 import logging
 import os
-from collections import deque
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from flask import Flask
 from flask_cors import CORS
@@ -73,11 +70,13 @@ def create_app() -> Flask:
     from app.routes.visualization import bp as viz_bp
     from app.routes.prediction import bp as pred_bp
     from app.routes.jobs import bp as jobs_bp
+    from app.routes.story import bp as story_bp
 
     flask_app.register_blueprint(core_bp)
     flask_app.register_blueprint(analysis_bp, url_prefix="/api/analysis")
     flask_app.register_blueprint(viz_bp, url_prefix="/api/visualization")
     flask_app.register_blueprint(pred_bp, url_prefix="/api/prediction")
     flask_app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
+    flask_app.register_blueprint(story_bp, url_prefix="/api/story")
 
     return flask_app

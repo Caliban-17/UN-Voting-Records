@@ -6,29 +6,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>UN Voting Intelligence Dashboard</title>
   <link rel="icon" type="image/png" href="/static/img/favicon.png" />
-  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/style.css?v={{ asset_v }}" />
   <link
     rel="stylesheet"
     href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
   />
-  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <!-- Self-hosted (static/vendor/): no runtime CDN dependency, CSP script-src is 'self' only. -->
+  <script src="/static/vendor/plotly-2.27.0.min.js"></script>
+  <script src="/static/vendor/axios-1.20.0.min.js"></script>
 </head>
 
 <body>
-  <div class="bg-orb bg-orb-a"></div>
-  <div class="bg-orb bg-orb-b"></div>
-
   <div class="app-shell">
     <header class="topbar">
       <div class="brand-block">
         <div class="brand-row">
           <span class="brand-kicker">UN-Scrupulous</span>
         </div>
-        <h1>Who does this country vote with?</h1>
+        <h1>What is the UN voting on, and who stands where?</h1>
         <p>
-          Pick a country and a window. See the allies, the opponents, and how
-          alignment with the P5 has shifted across UN General Assembly votes.
+          Eighty years of General Assembly roll-call votes, read as a story: the
+          agenda, the divisions, the alignments and the landmark decisions. Then
+          pick any country to see its allies, its opponents and how it has drifted.
         </p>
       </div>
       <div class="top-actions">
@@ -63,216 +62,195 @@
 
     <section id="controlPanel" class="control-panel" aria-label="Analysis Controls">
       <div class="control-item">
-        <label for="startYear">Start Year</label>
-        <input type="number" id="startYear" value="2010" min="1946" max="2025" />
+        <label for="startYear">Window from</label>
+        <input type="number" id="startYear" value="2010" min="1946" />
       </div>
       <div class="control-item">
-        <label for="endYear">End Year</label>
-        <input type="number" id="endYear" value="2020" min="1946" max="2025" />
+        <label for="endYear">To</label>
+        <input type="number" id="endYear" value="2020" min="1946" />
       </div>
-      <div class="control-item control-slider">
-        <label for="numClusters">Clusters <span id="clusterVal">10</span></label>
-        <input type="range" id="numClusters" min="2" max="20" value="10" />
-      </div>
-      <div class="control-item">
-        <label for="networkLayout">Network Layout</label>
-        <select id="networkLayout">
-          <option value="force">Force Directed</option>
-          <option value="circular">Circular</option>
-          <option value="kamada_kawai">Kamada-Kawai</option>
-          <option value="hierarchical">Hierarchical</option>
-        </select>
-      </div>
-      <div class="control-item">
-        <label for="projectionMethod">Projection</label>
-        <select id="projectionMethod">
-          <option value="pca">PCA</option>
-          <option value="umap">UMAP</option>
-        </select>
-      </div>
-      <div class="control-item">
-        <label for="similarityThreshold">Similarity Threshold</label>
-        <input type="number" id="similarityThreshold" value="0.65" step="0.05" min="0.1" max="1.0" />
-      </div>
-      <div class="control-item control-checkbox">
-        <label for="showNetworkLabels">Show Labels</label>
-        <input type="checkbox" id="showNetworkLabels" />
-      </div>
-      <div class="control-item control-action">
-        <label>&nbsp;</label>
-        <button id="updateNetworkBtn" class="btn btn-primary">Update Network</button>
-      </div>
-    </section>
-
-    <nav class="tabs-nav" aria-label="Views" role="tablist">
-      <button
-        class="tab-link active"
-        data-tab="profile"
-        role="tab"
-        id="profileTab"
-        aria-controls="profile"
-        aria-selected="true"
-        tabindex="0"
-      >
-        <i class="fas fa-flag"></i>
-        Country Profile
-      </button>
-      <button
-        class="tab-link"
-        data-tab="map"
-        role="tab"
-        id="mapTab"
-        aria-controls="map"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-earth-americas"></i>
-        Map
-      </button>
-      <button
-        class="tab-link"
-        data-tab="coalition"
-        role="tab"
-        id="coalitionTab"
-        aria-controls="coalition"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-users"></i>
-        Coalition
-      </button>
-      <button
-        class="tab-link"
-        data-tab="newsletter"
-        role="tab"
-        id="newsletterTab"
-        aria-controls="newsletter"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-newspaper"></i>
-        UN-Scrupulous
-      </button>
-      <button
-        class="tab-link"
-        data-tab="drift"
-        role="tab"
-        id="driftTab"
-        aria-controls="drift"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-bolt"></i>
-        What Changed
-      </button>
-      <button
-        class="tab-link"
-        data-tab="dashboard"
-        role="tab"
-        id="dashboardTab"
-        aria-controls="dashboard"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-chart-line"></i>
-        Dashboard
-      </button>
-      <button
-        class="tab-link"
-        data-tab="network"
-        role="tab"
-        id="networkTab"
-        aria-controls="network"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-project-diagram"></i>
-        Network
-      </button>
-      <button
-        class="tab-link"
-        data-tab="softpower"
-        role="tab"
-        id="softpowerTab"
-        aria-controls="softpower"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-fist-raised"></i>
-        Soft Power
-      </button>
-      <button
-        class="tab-link"
-        data-tab="pivotality"
-        role="tab"
-        id="pivotalityTab"
-        aria-controls="pivotality"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-scale-balanced"></i>
-        Pivotality
-      </button>
-      <button
-        class="tab-link"
-        data-tab="abstention"
-        role="tab"
-        id="abstentionTab"
-        aria-controls="abstention"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-hand"></i>
-        Abstention
-      </button>
-      <button
-        class="tab-link"
-        data-tab="bloc"
-        role="tab"
-        id="blocTab"
-        aria-controls="bloc"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-stream"></i>
-        Bloc Timeline
-      </button>
-      <button
-        class="tab-link"
-        data-tab="predictions"
-        role="tab"
-        id="predictionsTab"
-        aria-controls="predictions"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-magic"></i>
-        Predictions
-      </button>
-      <button
-        class="tab-link"
-        data-tab="compare"
-        role="tab"
-        id="compareTab"
-        aria-controls="compare"
-        aria-selected="false"
-        tabindex="-1"
-      >
-        <i class="fas fa-balance-scale"></i>
-        Compare
-      </button>
-    </nav>
-
-    <section id="insights-container" class="insights-grid" aria-live="polite"></section>
-    <section class="methods-panel" aria-live="polite">
-      <details id="methodsDetails" open>
-        <summary>Methods & Caveats</summary>
-        <div id="methodsContent" class="methods-content"></div>
+      <p class="control-hint">
+        The window drives the country, bloc and signal views. The Big Picture always
+        reads the whole record.
+      </p>
+      <details class="control-advanced">
+        <summary>Analysis settings</summary>
+        <div class="control-advanced__grid">
+          <div class="control-item control-slider">
+            <label for="numClusters">Clusters <span id="clusterVal">10</span></label>
+            <input type="range" id="numClusters" min="2" max="20" value="10" />
+          </div>
+          <div class="control-item">
+            <label for="networkLayout">Network layout</label>
+            <select id="networkLayout">
+              <option value="force">Force directed</option>
+              <option value="circular">Circular</option>
+              <option value="kamada_kawai">Kamada-Kawai</option>
+              <option value="hierarchical">Hierarchical</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <label for="projectionMethod">Projection</label>
+            <select id="projectionMethod">
+              <option value="pca">PCA</option>
+              <option value="umap">UMAP</option>
+            </select>
+          </div>
+          <div class="control-item">
+            <label for="similarityThreshold">Similarity threshold</label>
+            <input type="number" id="similarityThreshold" value="0.65" step="0.05" min="0.1" max="1.0" />
+          </div>
+          <div class="control-item control-checkbox">
+            <label for="showNetworkLabels">Show labels</label>
+            <input type="checkbox" id="showNetworkLabels" />
+          </div>
+          <div class="control-item control-action">
+            <label>&nbsp;</label>
+            <button id="updateNetworkBtn" class="btn btn-primary">Update network</button>
+          </div>
+        </div>
       </details>
     </section>
 
+    <nav class="tabs-nav" aria-label="Views" role="tablist">
+      <div class="tab-group">
+        <span class="tab-group__label">The story</span>
+        <button class="tab-link active" data-tab="story" role="tab" id="storyTab" aria-controls="story" aria-selected="true" tabindex="0"><i class="fas fa-book-open"></i> Big Picture</button>
+        <button class="tab-link" data-tab="newsletter" role="tab" id="newsletterTab" aria-controls="newsletter" aria-selected="false" tabindex="-1"><i class="fas fa-newspaper"></i> Weekly briefing</button>
+      </div>
+      <div class="tab-group">
+        <span class="tab-group__label">Countries</span>
+        <button class="tab-link" data-tab="profile" role="tab" id="profileTab" aria-controls="profile" aria-selected="false" tabindex="-1"><i class="fas fa-flag"></i> Country profile</button>
+        <button class="tab-link" data-tab="map" role="tab" id="mapTab" aria-controls="map" aria-selected="false" tabindex="-1"><i class="fas fa-globe"></i> Alignment map</button>
+        <button class="tab-link" data-tab="compare" role="tab" id="compareTab" aria-controls="compare" aria-selected="false" tabindex="-1"><i class="fas fa-balance-scale"></i> Compare two</button>
+      </div>
+      <div class="tab-group">
+        <span class="tab-group__label">Blocs</span>
+        <button class="tab-link" data-tab="coalition" role="tab" id="coalitionTab" aria-controls="coalition" aria-selected="false" tabindex="-1"><i class="fas fa-users"></i> Coalition builder</button>
+        <button class="tab-link" data-tab="network" role="tab" id="networkTab" aria-controls="network" aria-selected="false" tabindex="-1"><i class="fas fa-project-diagram"></i> Network</button>
+        <button class="tab-link" data-tab="bloc" role="tab" id="blocTab" aria-controls="bloc" aria-selected="false" tabindex="-1"><i class="fas fa-stream"></i> Bloc timeline</button>
+      </div>
+      <div class="tab-group">
+        <span class="tab-group__label">Signals</span>
+        <button class="tab-link" data-tab="drift" role="tab" id="driftTab" aria-controls="drift" aria-selected="false" tabindex="-1"><i class="fas fa-bolt"></i> What changed</button>
+        <button class="tab-link" data-tab="pivotality" role="tab" id="pivotalityTab" aria-controls="pivotality" aria-selected="false" tabindex="-1"><i class="fas fa-scale-balanced"></i> Who wins</button>
+        <button class="tab-link" data-tab="abstention" role="tab" id="abstentionTab" aria-controls="abstention" aria-selected="false" tabindex="-1"><i class="fas fa-hand"></i> Abstention</button>
+        <button class="tab-link" data-tab="softpower" role="tab" id="softpowerTab" aria-controls="softpower" aria-selected="false" tabindex="-1"><i class="fas fa-fist-raised"></i> Soft power</button>
+      </div>
+      <div class="tab-group">
+        <span class="tab-group__label">Tools</span>
+        <button class="tab-link" data-tab="dashboard" role="tab" id="dashboardTab" aria-controls="dashboard" aria-selected="false" tabindex="-1"><i class="fas fa-chart-line"></i> Dashboard</button>
+        <button class="tab-link" data-tab="predictions" role="tab" id="predictionsTab" aria-controls="predictions" aria-selected="false" tabindex="-1"><i class="fas fa-magic"></i> Predictions</button>
+      </div>
+    </nav>
+
+
     <main class="tab-content">
-      <section id="profile" class="tab-pane active" role="tabpanel" aria-labelledby="profileTab">
+      <section id="story" class="tab-pane active" role="tabpanel" aria-labelledby="storyTab">
+        <div id="storyStats" class="story-stats" aria-live="polite"></div>
+        <p id="storyCalendar" class="story-calendar" aria-live="polite"></p>
+
+        <article class="story-card" id="storyAgenda">
+          <header class="story-head">
+            <span class="story-kicker">01 · The agenda</span>
+            <h3 class="story-finding" data-role="finding">What has the Assembly been voting on?</h3>
+            <p class="story-caption">Share of each year's recorded votes by theme, 1946 to the last complete year. Hover for counts.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat" data-role="caveat"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="storyDivision">
+          <header class="story-head">
+            <span class="story-kicker">02 · The divisions</span>
+            <h3 class="story-finding" data-role="finding">How split is the room?</h3>
+            <p class="story-caption">Two readings of every year: how often two members that took a side voted the same way, and the share of votes where at least one member in ten dissented. Grey markers are events from the timeline.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat" data-role="caveat"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="storyAlignment">
+          <header class="story-head">
+            <span class="story-kicker">03 · A power and the world</span>
+            <h3 class="story-finding" data-role="finding">Who does the room side with?</h3>
+            <p class="story-caption">How often the other members sided with a permanent Security Council member when both took a side, and how many votes it cast with two or fewer companions.</p>
+            <div class="story-controls">
+              <label for="storyAnchor">Power</label>
+              <select id="storyAnchor">
+                <option value="USA">United States</option>
+                <option value="RUS">Russia (USSR before 1992)</option>
+                <option value="CHN">China</option>
+                <option value="GBR">United Kingdom</option>
+                <option value="FRA">France</option>
+              </select>
+            </div>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <div class="story-list" data-role="list"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">Agreement counts only votes where both took a side. Russia's line continues the USSR's before 1992.</p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="storyScatter">
+          <header class="story-head">
+            <span class="story-kicker">04 · Between Washington and Beijing</span>
+            <h3 class="story-finding" data-role="finding">Where does each country sit?</h3>
+            <p class="story-caption">Each dot is a member: how often it voted with the United States (across) and with China (up). The diagonal is even-handed. Arrows show the biggest moves since a decade earlier; colours are the UN's own regional groups.</p>
+          </header>
+          <div class="plot-host network-host" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat" data-role="caveat"></p>
+          </footer>
+        </article>
+
+        <article class="story-card" id="storyLandmarks">
+          <header class="story-head">
+            <span class="story-kicker">05 · The landmark votes</span>
+            <h3 class="story-finding">Fifteen decisions that defined the Assembly</h3>
+            <p class="story-caption">The tally bars show votes for, against and abstaining. Choose one to see how every country voted.</p>
+          </header>
+          <div class="landmark-layout">
+            <div class="landmark-list" data-role="list" role="list"></div>
+            <div class="landmark-detail">
+              <div class="landmark-detail__head" data-role="detail"></div>
+              <div class="plot-host network-host" data-role="map"></div>
+            </div>
+          </div>
+        </article>
+
+        <article class="story-card" id="storyRecurring">
+          <header class="story-head">
+            <span class="story-kicker">06 · The same vote, year after year</span>
+            <h3 class="story-finding" data-role="finding">The annual Cuba embargo vote</h3>
+            <p class="story-caption" data-role="caption"></p>
+            <div class="story-controls">
+              <label for="storyRecurringKey">Resolution</label>
+              <select id="storyRecurringKey"></select>
+            </div>
+          </header>
+          <div class="plot-host" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat">Tallies are the official counts recorded with each resolution.</p>
+          </footer>
+        </article>
+
+        <p class="story-method">
+          <strong>How to read these numbers.</strong> Only roll-call votes are recorded; resolutions adopted by consensus never appear, so every chart describes the contested end of the Assembly's work. "Taking a side" means voting Yes or No, as it does when the Assembly counts a majority. Themes are assigned from each resolution's title and UN subject headings; regional groups are the United Nations' own.
+        </p>
+      </section>
+
+      <section id="profile" class="tab-pane" role="tabpanel" aria-labelledby="profileTab" hidden>
         <article class="viz-card">
           <header class="viz-header">
             <h3>Country Profile</h3>
@@ -280,19 +258,23 @@
           </header>
           <div class="compare-controls">
             <div class="control-item">
-              <label for="profileCountry">Country (ISO-3)</label>
+              <label for="profileCountry">Country</label>
               <input
                 type="text"
                 id="profileCountry"
-                maxlength="3"
-                pattern="[A-Za-z]{3}"
-                placeholder="USA"
+                list="countryOptions"
+                autocomplete="off"
+                placeholder="Name or ISO-3 code"
                 value="USA"
               />
             </div>
             <div class="control-item control-action">
               <label>&nbsp;</label>
               <button id="profileLoadBtn" class="btn btn-primary">Load profile</button>
+            </div>
+            <div class="control-item control-action">
+              <label>&nbsp;</label>
+              <button id="profileShareBtn" class="btn btn-outline" title="Copy a link that opens this country's profile">Share this country</button>
             </div>
             <div class="control-item profile-suggest">
               <label>&nbsp;</label>
@@ -309,6 +291,19 @@
           </div>
           <div id="profileHeadline" class="profile-headline"></div>
           <div id="profileBlocStrip" class="bloc-strip" aria-live="polite"></div>
+        </article>
+
+        <article class="story-card" id="profileStory">
+          <header class="story-head">
+            <span class="story-kicker">The long view</span>
+            <h3 class="story-finding" data-role="finding">How this country has voted since it joined</h3>
+            <p class="story-caption">Every year on record: how often it sided with the United States, Russia and China when both took a side, and how often it was on the winning side. Grey markers are events from the timeline. The year window above does not apply here.</p>
+          </header>
+          <div class="plot-host tall" data-role="chart"></div>
+          <footer class="story-foot">
+            <p class="story-takeaway" data-role="takeaway"></p>
+            <p class="story-caveat" data-role="caveat"></p>
+          </footer>
         </article>
 
         <div class="viz-grid">
@@ -361,8 +356,8 @@
           </header>
           <div class="compare-controls">
             <div class="control-item">
-              <label for="mapCountry">Country (ISO-3)</label>
-              <input type="text" id="mapCountry" maxlength="3" pattern="[A-Za-z]{3}" placeholder="USA" value="USA" />
+              <label for="mapCountry">Country</label>
+              <input type="text" id="mapCountry" list="countryOptions" autocomplete="off" placeholder="Name or ISO-3 code" value="USA" />
             </div>
             <div class="control-item control-action">
               <label>&nbsp;</label>
@@ -382,7 +377,7 @@
           <div class="compare-controls">
             <div class="control-item">
               <label for="newsletterYear">Recent year</label>
-              <input type="number" id="newsletterYear" min="1946" max="2025" value="2024" />
+              <input type="number" id="newsletterYear" min="1946" placeholder="latest full year" />
             </div>
             <div class="control-item">
               <label for="newsletterBaseline">Baseline window (yrs)</label>
@@ -390,7 +385,7 @@
             </div>
             <div class="control-item">
               <label for="newsletterCountry">Country focus (optional)</label>
-              <input type="text" id="newsletterCountry" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g. ARG" />
+              <input type="text" id="newsletterCountry" list="countryOptions" autocomplete="off" placeholder="e.g. Argentina or ARG" />
             </div>
             <div class="control-item coalition-topic-input">
               <label for="newsletterTopics">Watched topics (csv)</label>
@@ -487,7 +482,7 @@
           <div class="compare-controls">
             <div class="control-item">
               <label for="driftRecentYear">Recent year</label>
-              <input type="number" id="driftRecentYear" min="1946" max="2025" value="2023" />
+              <input type="number" id="driftRecentYear" min="1946" placeholder="latest full year" />
             </div>
             <div class="control-item">
               <label for="driftBaselineWindow">Baseline window (yrs)</label>
@@ -521,6 +516,13 @@
       </section>
 
       <section id="dashboard" class="tab-pane" role="tabpanel" aria-labelledby="dashboardTab" hidden>
+        <section id="insights-container" class="insights-grid" aria-live="polite"></section>
+        <section class="methods-panel" aria-live="polite">
+          <details id="methodsDetails">
+            <summary>Methods & Caveats</summary>
+            <div id="methodsContent" class="methods-content"></div>
+          </details>
+        </section>
         <div class="stats-grid">
           <article class="stat-card">
             <p class="stat-label">Total Votes</p>
@@ -601,11 +603,10 @@
         <article class="viz-card viz-span-full">
           <header class="viz-header">
             <h3>Pivotality — Who Wins the Divided Votes</h3>
-            <span class="viz-note">On the genuinely divided resolutions (winning side under 75%), which countries most often land on the prevailing side. Uses the global year window.</span>
+            <span class="viz-note">On the genuinely divided resolutions (winning side under 75%), the share each country landed on the prevailing side of. Uses the global year window.</span>
           </header>
-          <div id="pivotalitySummary" class="text-muted" style="margin: 2px 0 10px;"></div>
+          <div id="pivotalitySummary" class="text-muted" style="margin: 2px 12px 10px;"></div>
           <div id="pivotalityChart" class="plot-host tall"></div>
-          <div id="pivotalityKey" class="code-key" aria-label="Country code key"></div>
         </article>
       </section>
 
@@ -617,7 +618,6 @@
               <span class="viz-note">Countries that sit on the fence most, over the window</span>
             </header>
             <div id="abstentionCountries" class="plot-host tall"></div>
-            <div id="abstentionKey" class="code-key" aria-label="Country code key"></div>
           </article>
           <article class="viz-card">
             <header class="viz-header">
@@ -699,11 +699,11 @@
           <div class="compare-controls">
             <div class="control-item">
               <label for="countryA">Country A</label>
-              <input type="text" id="countryA" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g., USA" />
+              <input type="text" id="countryA" list="countryOptions" autocomplete="off" placeholder="e.g. United States or USA" />
             </div>
             <div class="control-item">
               <label for="countryB">Country B</label>
-              <input type="text" id="countryB" maxlength="3" pattern="[A-Za-z]{3}" placeholder="e.g., RUS" />
+              <input type="text" id="countryB" list="countryOptions" autocomplete="off" placeholder="e.g. Russia or RUS" />
             </div>
             <div class="control-item control-action">
               <label>&nbsp;</label>
@@ -716,7 +716,8 @@
     </main>
   </div>
 
-  <script src="/static/js/app.js" defer></script>
+  <datalist id="countryOptions"></datalist>
+  <script src="/static/js/app.js?v={{ asset_v }}" defer></script>
 </body>
 
 </html>

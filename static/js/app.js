@@ -8,7 +8,8 @@ const state = {
   projectionMethod: "pca",
   similarityThreshold: 0.65,
   showNetworkLabels: false,
-  activeTab: "profile",
+  activeTab: "story",
+  dashboardLoadedFor: null,
   profileCountry: "USA",
   lastProfile: null,
   lastCoalitionTopic: null,
@@ -160,12 +161,22 @@ function applyHashState() {
   if (!window.location.hash || window.location.hash.length <= 1) return;
   const params = new URLSearchParams(window.location.hash.slice(1));
 
-  const start = toFiniteNumber(params.get("start"), state.startYear);
-  const end = toFiniteNumber(params.get("end"), state.endYear);
-  const k = toFiniteNumber(params.get("k"), state.numClusters);
-  const threshold = toFiniteNumber(params.get("threshold"), state.similarityThreshold);
+  // A missing hash parameter must keep the current value: Number(null) is 0,
+  // which used to send start_year=0 on every deep link without a window.
+  const hashNumber = (key, fallback) => {
+    const raw = params.get(key);
+    return raw === null || raw.trim() === "" ? fallback : toFiniteNumber(raw, fallback);
+  };
+  const start = hashNumber("start", state.startYear);
+  const end = hashNumber("end", state.endYear);
+  const k = hashNumber("k", state.numClusters);
+  const threshold = hashNumber("threshold", state.similarityThreshold);
   const allowedTabs = new Set([
+    "story",
     "profile",
+    "map",
+    "pivotality",
+    "abstention",
     "coalition",
     "newsletter",
     "drift",
@@ -1107,19 +1118,19 @@ async function compareCountries() {
   const countryAInput = document.getElementById("countryA");
   const countryBInput = document.getElementById("countryB");
 
-  const countryA = normalizeCodeInput(countryAInput.value);
-  const countryB = normalizeCodeInput(countryBInput.value);
-  countryAInput.value = countryA;
-  countryBInput.value = countryB;
+  const countryA = resolveCountryCode(countryAInput.value);
+  const countryB = resolveCountryCode(countryBInput.value);
 
-  if (!/^[A-Z]{3}$/.test(countryA)) {
-    showFieldError("countryA", "Use a 3-letter country code (e.g., USA)");
+  if (!countryA) {
+    showFieldError("countryA", "Pick a country from the list, or type its ISO-3 code");
     return;
   }
-  if (!/^[A-Z]{3}$/.test(countryB)) {
-    showFieldError("countryB", "Use a 3-letter country code (e.g., RUS)");
+  if (!countryB) {
+    showFieldError("countryB", "Pick a country from the list, or type its ISO-3 code");
     return;
   }
+  countryAInput.value = nameFor(countryA);
+  countryBInput.value = nameFor(countryB);
 
   setLoading(container, "Comparing country voting behavior...");
   button.disabled = true;
@@ -1396,7 +1407,7 @@ function renderCoalition(report) {
         if (!code) return;
         state.profileCountry = code;
         const input = document.getElementById("profileCountry");
-        if (input) input.value = code;
+        if (input) input.value = nameFor(code);
         activateTab("profile");
         writeHashState();
       });
@@ -1536,14 +1547,18 @@ async function loadArchiveList() {
 }
 
 async function composeNewsletter() {
-  const yr = toFiniteNumber(document.getElementById("newsletterYear")?.value, state.endYear);
+  const yrRaw = (document.getElementById("newsletterYear")?.value || "").trim();
+  const yr = yrRaw ? toFiniteNumber(yrRaw, state.endYear) : null;
   const bw = toFiniteNumber(document.getElementById("newsletterBaseline")?.value, 3);
   const topics = (document.getElementById("newsletterTopics")?.value || "").trim();
-  const country = normalizeCodeInput(document.getElementById("newsletterCountry")?.value || "");
-  const params = new URLSearchParams({
-    recent_year: String(yr),
-    baseline_window: String(bw),
-  });
+  const countryRaw = (document.getElementById("newsletterCountry")?.value || "").trim();
+  const country = resolveCountryCode(countryRaw);
+  if (countryRaw && !country) {
+    showFieldError("newsletterCountry", "Pick a country from the list, or type its ISO-3 code");
+    return;
+  }
+  const params = new URLSearchParams({ baseline_window: String(bw) });
+  if (yr) params.set("recent_year", String(yr));
   if (topics) params.set("topics", topics);
   if (country && country.length === 3) params.set("country", country);
   state.lastArchiveParams = params.toString();
@@ -1560,9 +1575,10 @@ async function composeNewsletter() {
   const dlMd = document.getElementById("newsletterDownloadMd");
   const dlTxt = document.getElementById("newsletterDownloadText");
   const openHtml = document.getElementById("newsletterOpenHtml");
-  if (dlHtml) { dlHtml.href = htmlUrl; dlHtml.download = `weekly-atlas-${yr}.html`; }
-  if (dlMd) { dlMd.href = mdUrl; dlMd.download = `weekly-atlas-${yr}.md`; }
-  if (dlTxt) { dlTxt.href = txtUrl; dlTxt.download = `weekly-atlas-${yr}.txt`; }
+  const editionYear = yr || "latest";
+  if (dlHtml) { dlHtml.href = htmlUrl; dlHtml.download = `weekly-atlas-${editionYear}.html`; }
+  if (dlMd) { dlMd.href = mdUrl; dlMd.download = `weekly-atlas-${editionYear}.md`; }
+  if (dlTxt) { dlTxt.href = txtUrl; dlTxt.download = `weekly-atlas-${editionYear}.txt`; }
   if (openHtml) openHtml.href = htmlUrl;
 
   try {
@@ -1577,6 +1593,12 @@ async function composeNewsletter() {
       masthead.textContent =
         `Edition №${d.edition_number} · ${d.dateline} · ${d.byline} · ${d.period_label}`;
       state.lastNewsletterSubject = d.email_subject || "";
+      // The server may have auto-picked the year; name the downloads after it.
+      if (d.recent_year) {
+        if (dlHtml) dlHtml.download = `weekly-atlas-${d.recent_year}.html`;
+        if (dlMd) dlMd.download = `weekly-atlas-${d.recent_year}.md`;
+        if (dlTxt) dlTxt.download = `weekly-atlas-${d.recent_year}.txt`;
+      }
       if (subjectInfo) {
         subjectInfo.innerHTML = `Subject: <strong>${(d.email_subject || "").replace(/</g,"&lt;")}</strong> <span class="text-muted">(slug: ${d.edition_slug})</span>`;
       }
@@ -1676,8 +1698,8 @@ function renderDriftFeed(targetEl, drifts, options = {}) {
       const b = btn.getAttribute("data-b");
       const aInput = document.getElementById("countryA");
       const bInput = document.getElementById("countryB");
-      if (aInput) aInput.value = a;
-      if (bInput) bInput.value = b;
+      if (aInput) aInput.value = nameFor(a);
+      if (bInput) bInput.value = nameFor(b);
       activateTab("compare");
       const compareBtn = document.getElementById("compareBtn");
       if (compareBtn) compareBtn.click();
@@ -1699,20 +1721,18 @@ async function loadDriftDigest() {
   const target = document.getElementById("driftDigest");
   if (!target) return;
   setLoading(target, "Composing digest…");
-  const recentYear = toFiniteNumber(
-    document.getElementById("driftRecentYear")?.value,
-    state.endYear,
-  );
+  const recentYearRaw = (document.getElementById("driftRecentYear")?.value || "").trim();
+  const recentYear = recentYearRaw ? toFiniteNumber(recentYearRaw, state.endYear) : null;
   const baselineWindow = toFiniteNumber(
     document.getElementById("driftBaselineWindow")?.value,
     5,
   );
   try {
     const params = new URLSearchParams({
-      recent_year: String(recentYear),
       baseline_window: String(baselineWindow),
       top: "6",
     });
+    if (recentYear) params.set("recent_year", String(recentYear));
     const response = await axios.get(`/api/drift/digest?${params.toString()}`);
     clearNode(target);
     const digestEl = document.createElement("div");
@@ -1735,10 +1755,8 @@ async function loadDriftFeed() {
   if (!target) return;
   setLoading(target, "Computing alignment drifts…");
 
-  const recentYear = toFiniteNumber(
-    document.getElementById("driftRecentYear")?.value,
-    state.endYear,
-  );
+  const recentYearRaw = (document.getElementById("driftRecentYear")?.value || "").trim();
+  const recentYear = recentYearRaw ? toFiniteNumber(recentYearRaw, state.endYear) : null;
   const baselineWindow = toFiniteNumber(
     document.getElementById("driftBaselineWindow")?.value,
     5,
@@ -1747,11 +1765,11 @@ async function loadDriftFeed() {
 
   try {
     const params = new URLSearchParams({
-      recent_year: String(recentYear),
       baseline_window: String(baselineWindow),
       direction,
       top: "12",
     });
+    if (recentYear) params.set("recent_year", String(recentYear));
     const response = await axios.get(`/api/drift?${params.toString()}`);
     const payload = response.data;
     if (windowEl) {
@@ -1783,8 +1801,8 @@ function openCompareWithPeer(peerCode) {
   if (!peerCode) return;
   const a = document.getElementById("countryA");
   const b = document.getElementById("countryB");
-  if (a) a.value = state.profileCountry;
-  if (b) b.value = peerCode;
+  if (a) a.value = nameFor(state.profileCountry);
+  if (b) b.value = nameFor(peerCode);
   activateTab("compare");
   const btn = document.getElementById("compareBtn");
   if (btn) btn.click();
@@ -1992,6 +2010,7 @@ function renderProfile(profile) {
 async function loadCountryProfile() {
   const code = normalizeCodeInput(state.profileCountry);
   if (code.length !== 3) return;
+  loadCountryStory(code);
   const headline = document.getElementById("profileHeadline");
   setLoading(headline, `Loading profile for ${code}…`);
   try {
@@ -2006,18 +2025,40 @@ async function loadCountryProfile() {
   }
 }
 
+// Load only what the open tab needs. The dashboard's four analytics used to
+// run at every startup whatever tab was showing; now they wait to be looked at.
 async function runAnalysis() {
   try {
-    // Profile is the primary landing view — always refresh it so the headline
-    // story matches the current year range, even when the user is on another tab.
-    await loadCountryProfile();
-
-    // Run core analytics sequentially to avoid backend slot contention (429 busy).
-    await loadClustering();
-    await loadPCAPlot();
-    await loadIssueTimeline();
-    await loadInsights();
-
+    if (state.activeTab === "story") {
+      await loadBigPicture();
+    }
+    if (state.activeTab === "profile") {
+      await loadCountryProfile();
+    }
+    if (state.activeTab === "dashboard") {
+      await loadDashboard(true);
+    }
+    // Deep links (#tab=drift, #tab=map …) land here with skipLoad set, so
+    // every tab that fetches on activation must also fetch on first run.
+    if (state.activeTab === "drift") {
+      loadDriftFeed();
+    }
+    if (state.activeTab === "map") {
+      loadAlignmentMap();
+    }
+    if (state.activeTab === "pivotality") {
+      loadPivotality();
+    }
+    if (state.activeTab === "abstention") {
+      loadAbstention();
+    }
+    if (state.activeTab === "coalition" && !state.lastCoalitionTopic) {
+      loadCoalition();
+    }
+    if (state.activeTab === "newsletter") {
+      if (!state.lastNewsletterMarkdown) composeNewsletter();
+      loadArchiveList();
+    }
     if (state.activeTab === "network") {
       await loadNetworkGraph();
     }
@@ -2030,6 +2071,18 @@ async function runAnalysis() {
   } catch (error) {
     console.error("Analysis run failed", error);
   }
+}
+
+// Clustering, PCA, issue timeline and the insight cards — once per window,
+// sequentially to avoid the backend's analysis-slot limit (429 busy).
+async function loadDashboard(force = false) {
+  const key = `${state.startYear}-${state.endYear}-${state.numClusters}-${state.projectionMethod}`;
+  if (!force && state.dashboardLoadedFor === key) return;
+  state.dashboardLoadedFor = key;
+  await loadClustering();
+  await loadPCAPlot();
+  await loadIssueTimeline();
+  await loadInsights();
 }
 
 // ── Country-name lookup (decode ISO-3 codes on axes / hovers / keys) ────────
@@ -2047,25 +2100,71 @@ function nameFor(code) {
   return (state.countryNames && state.countryNames[code]) || code;
 }
 
-// Render a compact "CODE — Name" key into `targetId` for the codes shown on a
-// chart axis, so the three-letter labels aren't ambiguous.
-function renderCodeKey(targetId, codes) {
-  const el = document.getElementById(targetId);
-  if (!el) return;
-  clearNode(el);
-  const label = document.createElement("span");
-  label.className = "code-key__label";
-  label.textContent = "Codes:";
-  el.appendChild(label);
-  Array.from(new Set(codes)).forEach((c) => {
-    const item = document.createElement("span");
-    item.className = "code-key__item";
-    const b = document.createElement("b");
-    b.textContent = c;
-    item.appendChild(b);
-    item.appendChild(document.createTextNode(" " + nameFor(c)));
-    el.appendChild(item);
+// Country inputs accept either an ISO-3 code ("USA") or a display name
+// ("United States", case-insensitive; a unique prefix or substring is enough).
+// Returns the ISO-3 code, or "" when nothing matches. Falls back to plain
+// code handling if the name list never loaded.
+function resolveCountryCode(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const names = state.countryNames || {};
+  const entries = Object.entries(names);
+  const upper = raw.toUpperCase();
+  if (/^[A-Z]{3}$/.test(upper) && (!entries.length || names[upper])) return upper;
+  const needle = raw.toLowerCase();
+  const exact = entries.find(([, n]) => n.toLowerCase() === needle);
+  if (exact) return exact[0];
+  const prefix = entries.filter(([, n]) => n.toLowerCase().startsWith(needle));
+  if (prefix.length === 1) return prefix[0][0];
+  const within = entries.filter(([, n]) => n.toLowerCase().includes(needle));
+  return within.length === 1 ? within[0][0] : "";
+}
+
+// Fill the shared <datalist> every country input points at: value = display
+// name (what the browser inserts), label = ISO-3 code.
+function populateCountryDatalist() {
+  const list = document.getElementById("countryOptions");
+  if (!list) return;
+  clearNode(list);
+  Object.entries(state.countryNames || {})
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .forEach(([code, name]) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.label = code;
+      list.appendChild(opt);
+    });
+}
+
+// Inputs start life holding bare codes (defaults / URL hash); show names once
+// the code → name map has loaded.
+function syncCountryInputs() {
+  const profile = document.getElementById("profileCountry");
+  if (profile) profile.value = nameFor(state.profileCountry);
+  const map = document.getElementById("mapCountry");
+  if (map) map.value = nameFor(resolveCountryCode(map.value) || "USA");
+}
+
+// Break a long category label at word boundaries into at most `maxLines`
+// lines (Plotly renders <br> in tick labels) instead of truncating it.
+function wrapLabel(text, width = 32, maxLines = 2) {
+  const lines = [];
+  let line = "";
+  String(text || "").split(/\s+/).forEach((word) => {
+    if (line && `${line} ${word}`.length > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line ? `${line} ${word}` : word;
+    }
   });
+  if (line) lines.push(line);
+  if (lines.length > maxLines) {
+    const kept = lines.slice(0, maxLines);
+    kept[maxLines - 1] = `${kept[maxLines - 1]}…`;
+    return kept.join("<br>");
+  }
+  return lines.join("<br>");
 }
 
 // ── Alignment map · Pivotality · Abstention (new analytical views) ──────────
@@ -2073,8 +2172,15 @@ function renderCodeKey(targetId, codes) {
 async function loadAlignmentMap() {
   const host = document.getElementById("alignmentMap");
   if (!host) return;
-  const code = normalizeCodeInput(document.getElementById("mapCountry")?.value) || "USA";
-  setLoading(host, `Mapping voting alignment with ${code}…`);
+  const input = document.getElementById("mapCountry");
+  const typed = (input?.value || "").trim();
+  const code = typed ? resolveCountryCode(typed) : "USA";
+  if (!code) {
+    showFieldError("mapCountry", "Pick a country from the list, or type its ISO-3 code");
+    return;
+  }
+  if (input) input.value = nameFor(code);
+  setLoading(host, `Mapping voting alignment with ${nameFor(code)}…`);
   try {
     requirePlotly();
     const params = new URLSearchParams({
@@ -2102,10 +2208,28 @@ async function loadAlignmentMap() {
       hovertemplate: "%{text}<br>alignment %{z:.2f}<extra></extra>",
       marker: { line: { color: "#ffffff", width: 0.4 } },
     };
+    // The selected country has no alignment with itself, so it would render as
+    // no-data white; paint it ink-dark on top so the anchor is unmistakable.
+    const selected = {
+      type: "choropleth",
+      locationmode: "ISO-3",
+      locations: [code],
+      z: [1],
+      zmin: 0,
+      zmax: 1,
+      text: [`${res.data.country_name || nameFor(code)} (selected)`],
+      colorscale: [
+        [0, "#0b2238"],
+        [1, "#0b2238"],
+      ],
+      showscale: false,
+      hovertemplate: "%{text}<extra></extra>",
+      marker: { line: { color: "#ffffff", width: 1.2 } },
+    };
     clearNode(host);
     Plotly.newPlot(
       host,
-      [trace],
+      [trace, selected],
       {
         autosize: true,
         title: {
@@ -2152,44 +2276,66 @@ async function loadPivotality() {
     });
     maybeUpdateMeta(res.data);
     const scores = res.data?.pivotality_scores || {};
+    const contested = Math.max(1, toFiniteNumber(res.data?.contested_count, 0));
     const rows = Object.entries(scores)
-      .map(([code, v]) => ({ code, value: toFiniteNumber(v.pivotality_index ?? v.swing_votes, 0) }))
-      .sort((a, b) => b.value - a.value)
+      .map(([code, v]) => {
+        const wins = toFiniteNumber(v.pivotality_index ?? v.swing_votes, 0);
+        return { code, wins, share: (100 * wins) / contested };
+      })
+      .sort((a, b) => b.wins - a.wins)
       .slice(0, 20)
       .reverse();
     if (summary) {
       summary.textContent =
         `${res.data.contested_count} divided resolutions (winning side under 75%) ` +
         `out of ${res.data.total_resolutions} in ${state.startYear}–${state.endYear}. ` +
-        `Bars show how many of those each country landed on the prevailing side of.`;
+        `Each dot is the share of those a country landed on the prevailing side of. ` +
+        `The axis starts near the lowest of the top 20, so read positions, not lengths.`;
     }
     if (!rows.length) {
       showErrorElement(host, "No contested resolutions in this window.");
       return;
     }
+    // Dot plot, not bars: the top 20 sit within a few points of each other, so
+    // bars from zero all look identical. A narrowed axis is honest for dots
+    // (position encodes the value) where it would mislead for bars (length).
+    const lowest = Math.min(...rows.map((r) => r.share));
+    const axisStart = Math.max(0, Math.floor(lowest / 5) * 5 - 5);
     clearNode(host);
     Plotly.newPlot(
       host,
       [
         {
-          type: "bar",
-          orientation: "h",
-          x: rows.map((r) => r.value),
-          y: rows.map((r) => r.code),
-          text: rows.map((r) => nameFor(r.code)),
-          marker: { color: PALETTE.yes },
-          hovertemplate: "%{text} (%{y})<br>%{x} times on the prevailing side<extra></extra>",
+          type: "scatter",
+          mode: "markers+text",
+          x: rows.map((r) => r.share),
+          y: rows.map((r) => nameFor(r.code)),
+          text: rows.map((r) => `${r.share.toFixed(0)}%`),
+          textposition: "middle right",
+          textfont: { size: 11, color: "#456783" },
+          cliponaxis: false,
+          customdata: rows.map((r) => [r.code, r.wins, contested]),
+          marker: { color: PALETTE.yes, size: 11 },
+          hovertemplate:
+            "%{y} (%{customdata[0]})<br>%{customdata[1]} of %{customdata[2]} divided votes (%{x:.0f}%)<extra></extra>",
         },
       ],
       {
         autosize: true,
-        xaxis: { title: "Times on the prevailing side of a divided vote" },
-        yaxis: { automargin: true },
-        margin: { l: 70, r: 20, t: 16, b: 42 },
+        xaxis: {
+          title: "Share of divided votes on the prevailing side (%)",
+          range: [axisStart, 101],
+          ticksuffix: "%",
+          automargin: true,
+          gridcolor: "#ece8e0",
+          zeroline: false,
+        },
+        yaxis: { automargin: true, gridcolor: "#f3f1ec" },
+        margin: { l: 10, r: 48, t: 16, b: 56 },
+        showlegend: false,
       },
       { responsive: true, displayModeBar: false },
     );
-    renderCodeKey("pivotalityKey", rows.map((r) => r.code));
   } catch (error) {
     showErrorElement(host, getErrorMessage(error));
   }
@@ -2225,21 +2371,20 @@ async function loadAbstention() {
             type: "bar",
             orientation: "h",
             x: countryRows.map((r) => r.rate * 100),
-            y: countryRows.map((r) => r.code),
-            text: countryRows.map((r) => nameFor(r.code)),
+            y: countryRows.map((r) => nameFor(r.code)),
+            customdata: countryRows.map((r) => r.code),
             marker: { color: PALETTE.abstain },
-            hovertemplate: "%{text} (%{y})<br>%{x:.0f}% abstained<extra></extra>",
+            hovertemplate: "%{y} (%{customdata})<br>%{x:.0f}% abstained<extra></extra>",
           },
         ],
         {
           autosize: true,
-          xaxis: { title: "Abstention rate (%)" },
+          xaxis: { title: "Abstention rate (%)", automargin: true },
           yaxis: { automargin: true },
-          margin: { l: 70, r: 20, t: 16, b: 42 },
+          margin: { l: 10, r: 20, t: 16, b: 56 },
         },
         { responsive: true, displayModeBar: false },
       );
-      renderCodeKey("abstentionKey", countryRows.map((r) => r.code));
     } else {
       showErrorElement(countriesHost, "No abstention data in this window.");
     }
@@ -2259,7 +2404,7 @@ async function loadAbstention() {
             type: "bar",
             orientation: "h",
             x: topicRows.map((r) => r.rate * 100),
-            y: topicRows.map((r) => (r.topic.length > 34 ? r.topic.slice(0, 33) + "…" : r.topic)),
+            y: topicRows.map((r) => wrapLabel(r.topic, 30)),
             text: topicRows.map((r) => r.topic),
             textposition: "none",
             marker: { color: "#d38b2a" },
@@ -2268,9 +2413,9 @@ async function loadAbstention() {
         ],
         {
           autosize: true,
-          xaxis: { title: "Abstention rate (%)" },
+          xaxis: { title: "Abstention rate (%)", automargin: true },
           yaxis: { automargin: true },
-          margin: { l: 170, r: 20, t: 16, b: 42 },
+          margin: { l: 10, r: 20, t: 16, b: 56 },
         },
         { responsive: true, displayModeBar: false },
       );
@@ -2301,6 +2446,12 @@ function activateTab(tabId, options = {}) {
   Object.assign(state, reduceState(state, { type: "SET_TAB", activeTab: tabId }));
   writeHashState();
 
+  if (!skipLoad && tabId === "story") {
+    loadBigPicture();
+  }
+  if (!skipLoad && tabId === "dashboard") {
+    loadDashboard();
+  }
   if (!skipLoad && tabId === "profile") {
     loadCountryProfile();
   }
@@ -2411,18 +2562,38 @@ function setupDriftControls() {
 function setupProfileControls() {
   const input = document.getElementById("profileCountry");
   const loadBtn = document.getElementById("profileLoadBtn");
-  if (input) input.value = state.profileCountry;
+  if (input) input.value = nameFor(state.profileCountry);
 
   const submit = () => {
-    const code = normalizeCodeInput(input ? input.value : state.profileCountry);
-    if (code.length !== 3) return;
+    const code = input ? resolveCountryCode(input.value) : state.profileCountry;
+    if (!code) {
+      showFieldError("profileCountry", "Pick a country from the list, or type its ISO-3 code");
+      return;
+    }
     state.profileCountry = code;
-    if (input) input.value = code;
+    if (input) input.value = nameFor(code);
     writeHashState();
     loadCountryProfile();
   };
 
   if (loadBtn) loadBtn.addEventListener("click", submit);
+  const shareBtn = document.getElementById("profileShareBtn");
+  if (shareBtn) {
+    shareBtn.addEventListener("click", async () => {
+      const code = normalizeCodeInput(state.profileCountry);
+      const url = `${window.location.origin}${window.location.pathname}#tab=profile&country=${code}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        shareBtn.textContent = "Link copied";
+        setTimeout(() => {
+          shareBtn.textContent = "Share this country";
+        }, 1500);
+      } catch (error) {
+        // Clipboard access can be refused; show the link inline instead of a modal.
+        showFieldError("profileCountry", `Copy this link: ${url}`);
+      }
+    });
+  }
   if (input) {
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
@@ -2435,7 +2606,7 @@ function setupProfileControls() {
     chip.addEventListener("click", () => {
       const code = normalizeCodeInput(chip.getAttribute("data-profile-suggest"));
       state.profileCountry = code;
-      if (input) input.value = code;
+      if (input) input.value = nameFor(code);
       writeHashState();
       loadCountryProfile();
     });
@@ -2557,13 +2728,6 @@ function setupEventListeners() {
   document.getElementById("predictBtn").addEventListener("click", predictVote);
   document.getElementById("compareBtn").addEventListener("click", compareCountries);
 
-  ["countryA", "countryB"].forEach((fieldId) => {
-    const field = document.getElementById(fieldId);
-    field.addEventListener("input", () => {
-      field.value = normalizeCodeInput(field.value);
-    });
-  });
-
   document
     .getElementById("exportAnalysisBtn")
     .addEventListener("click", () => exportData("analysis"));
@@ -2657,6 +2821,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     setupEventListeners();
     setupProfileControls();
     setupMapControls();
+    setupStoryControls();
     setupDriftControls();
     setupCoalitionControls();
     setupNewsletterControls();
@@ -2666,6 +2831,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     await loadDataSummary();
     await Promise.all([loadIssues(), loadMethods(), loadKnownEvents(), loadCountryNames()]);
+    populateCountryDatalist();
+    syncCountryInputs();
     await runAnalysis();
     writeHashState();
 
@@ -2679,3 +2846,618 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.error("Dashboard initialization failed", error);
   }
 });
+
+// ── The Big Picture (whole-record story) ────────────────────────────────────
+// Six readings of the entire roll-call record. Each card gets a headline
+// finding computed from the numbers, the chart, the server's takeaway, and
+// its caveat, so the finding never drifts from the data behind it.
+
+const STORY = {
+  loaded: false,
+  loading: null,
+  anchor: "USA",
+  landmarks: [],
+  activeLandmark: null,
+};
+
+// One colour per theme (Okabe-Ito, its yellow swapped for a gold that
+// survives on white) and one per UN regional group.
+const THEME_COLORS = {
+  "Israel & Palestine": "#d55e00",
+  "Decolonization & self-determination": "#e69f00",
+  "Nuclear weapons & disarmament": "#0072b2",
+  "Human rights": "#cc79a7",
+  "Development, economy & environment": "#009e73",
+  "UN institutions, budget & law": "#56b4e9",
+  "Peace, security & conflicts": "#8a6d00",
+  Other: "#b8b8b8",
+};
+const REGION_ORDER = [
+  "Western Europe & Others",
+  "Eastern Europe",
+  "Latin America & Caribbean",
+  "Africa",
+  "Asia-Pacific",
+  "Other",
+];
+const REGION_COLORS = {
+  "Western Europe & Others": "#0072b2",
+  "Eastern Europe": "#56b4e9",
+  "Latin America & Caribbean": "#009e73",
+  Africa: "#e69f00",
+  "Asia-Pacific": "#d55e00",
+  Other: "#999999",
+};
+const PLOT_CONFIG = { responsive: true, displayModeBar: false };
+
+function storyLayout(overrides = {}) {
+  const base = {
+    autosize: true,
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: "Avenir Next, Trebuchet MS, Gill Sans, sans-serif", size: 12, color: "#23425f" },
+    margin: { l: 10, r: 16, t: 12, b: 48 },
+    hovermode: "closest",
+    hoverlabel: { bgcolor: "#0b2238", bordercolor: "#0b2238", font: { color: "#ffffff", size: 12 } },
+    legend: { orientation: "h", x: 0, y: 1.14, font: { size: 11 } },
+    xaxis: { gridcolor: "#ece8e0", zeroline: false, automargin: true },
+    yaxis: { gridcolor: "#ece8e0", zeroline: false, automargin: true },
+  };
+  const out = { ...base, ...overrides };
+  out.xaxis = { ...base.xaxis, ...(overrides.xaxis || {}) };
+  out.yaxis = { ...base.yaxis, ...(overrides.yaxis || {}) };
+  if (overrides.margin) out.margin = { ...base.margin, ...overrides.margin };
+  if (overrides.legend) out.legend = { ...base.legend, ...overrides.legend };
+  return out;
+}
+
+function storyEl(cardId, role) {
+  return document.querySelector(`#${cardId} [data-role="${role}"]`);
+}
+
+function setStoryText(cardId, role, text) {
+  const el = storyEl(cardId, role);
+  if (el) el.textContent = text || "";
+}
+
+function storyEscape(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function pct(value, digits = 0) {
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function movingSum(values, width = 3) {
+  const half = Math.floor(width / 2);
+  return values.map((_, i) => {
+    let sum = 0;
+    for (let j = i - half; j <= i + half; j += 1) {
+      if (j >= 0 && j < values.length) sum += values[j];
+    }
+    return sum;
+  });
+}
+
+// Dotted guide lines plus hoverable markers for the annotated events, so a
+// reader can tie a kink in a line to 1956, 1991 or 2022 without a legend.
+function eventShapes(minYear, maxYear, top = 100) {
+  const raw = state.knownEvents;
+  const events = (Array.isArray(raw) ? raw : (raw && raw.events) || []).filter(
+    (e) => e.year >= minYear && e.year <= maxYear,
+  );
+  return {
+    shapes: events.map((e) => ({
+      type: "line", x0: e.year, x1: e.year, y0: 0, y1: 1, yref: "paper",
+      line: { color: "#d8d3c8", width: 1, dash: "dot" },
+    })),
+    trace: {
+      type: "scatter", mode: "markers", name: "events", showlegend: false,
+      x: events.map((e) => e.year), y: events.map(() => top),
+      marker: { color: "#b9b2a4", size: 7, symbol: "diamond" },
+      text: events.map((e) => `${e.year}: ${e.label}`),
+      hovertemplate: "%{text}<extra></extra>",
+    },
+  };
+}
+
+async function loadBigPicture(force = false) {
+  if (STORY.loading) return STORY.loading;
+  if (STORY.loaded && !force) return null;
+  STORY.loading = (async () => {
+    try {
+      requirePlotly();
+      ["storyAgenda", "storyDivision", "storyAlignment", "storyScatter", "storyRecurring"].forEach((id) => {
+        const host = storyEl(id, "chart");
+        if (host) setLoading(host, "Reading the whole record…");
+      });
+      const requests = {
+        agenda: axios.get("/api/story/agenda"),
+        division: axios.get("/api/story/division"),
+        alignment: axios.get(`/api/story/alignment?anchor=${STORY.anchor}`),
+        scatter: axios.get("/api/story/scatter"),
+        landmarks: axios.get("/api/story/landmarks"),
+        cuba: axios.get("/api/story/recurring/cuba"),
+        calendar: axios.get("/api/story/calendar"),
+      };
+      const cardFor = {
+        agenda: ["storyAgenda", "chart"], division: ["storyDivision", "chart"],
+        alignment: ["storyAlignment", "chart"], scatter: ["storyScatter", "chart"],
+        landmarks: ["storyLandmarks", "map"], cuba: ["storyRecurring", "chart"],
+      };
+      const keys = Object.keys(requests);
+      const settled = await Promise.allSettled(keys.map((k) => requests[k]));
+      const data = {};
+      settled.forEach((result, i) => {
+        const key = keys[i];
+        if (result.status === "fulfilled") {
+          data[key] = result.value.data;
+        } else if (cardFor[key]) {
+          const host = storyEl(...cardFor[key]);
+          if (host) showErrorElement(host, getErrorMessage(result.reason));
+        }
+      });
+      if (data.agenda) renderStoryAgenda(data.agenda);
+      if (data.division) renderStoryDivision(data.division);
+      if (data.alignment) renderStoryAlignment(data.alignment);
+      if (data.scatter) renderStoryScatter(data.scatter);
+      if (data.landmarks) renderStoryLandmarks(data.landmarks.landmarks || []);
+      if (data.cuba) renderStoryRecurring(data.cuba);
+      renderStoryStats(data);
+      if (data.calendar) renderStoryCalendar(data.calendar);
+      STORY.loaded = true;
+    } catch (error) {
+      console.error("Big Picture failed", error);
+    } finally {
+      STORY.loading = null;
+    }
+  })();
+  return STORY.loading;
+}
+
+function renderStoryStats(data) {
+  const el = document.getElementById("storyStats");
+  if (!el) return;
+  clearNode(el);
+  const tiles = [];
+  if (data.agenda) {
+    const total = data.agenda.totals.reduce((a, b) => a + b, 0);
+    const years = data.agenda.years;
+    tiles.push([total.toLocaleString(), `recorded votes, ${years[0]}–${years[years.length - 1]}`]);
+  }
+  if (data.division) {
+    const last = data.division.series.find((r) => r.year === data.division.last_full_year);
+    const max = data.division.series.reduce((a, b) => (b.votes > a.votes ? b : a));
+    if (last) {
+      tiles.push([
+        last.votes.toLocaleString(),
+        last.year === max.year
+          ? `recorded votes in ${last.year}, the most in any year on record`
+          : `recorded votes in ${last.year} (the record is ${max.votes} in ${max.year})`,
+      ]);
+    }
+  }
+  if (data.alignment && data.alignment.anchor === "USA") {
+    const last = data.alignment.series.find((r) => r.year === data.alignment.last_full_year);
+    if (last && last.agreement != null) {
+      tiles.push([pct(last.agreement), `of other members' votes sided with the United States in ${last.year}`]);
+    }
+  }
+  if (data.scatter) {
+    const [a1, a2] = data.scatter.anchors.map((a) => a.toLowerCase());
+    const closer = data.scatter.points.filter((p) => p[a2] > p[a1]).length;
+    tiles.push([
+      `${closer} of ${data.scatter.points.length}`,
+      `members voted more often with ${data.scatter.anchor_names[1]} than with ${data.scatter.anchor_names[0]}, ${data.scatter.window[0]}–${data.scatter.window[1]}`,
+    ]);
+  }
+  tiles.forEach(([value, label]) => {
+    const tile = document.createElement("div");
+    tile.className = "stat-tile";
+    const v = document.createElement("div");
+    v.className = "stat-tile__value";
+    v.textContent = value;
+    const l = document.createElement("div");
+    l.className = "stat-tile__label";
+    l.textContent = label;
+    tile.appendChild(v);
+    tile.appendChild(l);
+    el.appendChild(tile);
+  });
+}
+
+function renderStoryAgenda(d) {
+  const host = storyEl("storyAgenda", "chart");
+  clearNode(host);
+  const traces = d.themes.map((theme) => ({
+    type: "scatter", mode: "lines", stackgroup: "agenda", groupnorm: "percent",
+    x: d.years, y: movingSum(d.counts[theme]), name: theme,
+    line: { width: 0.6, color: THEME_COLORS[theme] || "#999" },
+    fillcolor: THEME_COLORS[theme] || "#999",
+    hovertemplate: `${theme}: %{y:.0f}%<extra></extra>`,
+  }));
+  Plotly.newPlot(host, traces, storyLayout({
+    xaxis: { dtick: 10, range: [d.years[0], d.years[d.years.length - 1]] },
+    yaxis: { title: "Share of recorded votes", ticksuffix: "%", range: [0, 100] },
+    legend: { y: -0.12, x: 0 },
+    margin: { t: 8, b: 96 },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+
+  const decades = Object.keys(d.decade_shares).sort();
+  const lastDecade = decades[decades.length - 1];
+  const shares = d.decade_shares[lastDecade];
+  const ranked = Object.entries(shares).filter(([t]) => t !== "Other").sort((a, b) => b[1] - a[1]);
+  const decol = "Decolonization & self-determination";
+  const decolThen = d.decade_shares["1960"] ? d.decade_shares["1960"][decol] : null;
+  let finding = `In the ${lastDecade}s the Assembly's recorded votes are mostly about ${ranked[0][0].toLowerCase()} and ${ranked[1][0].toLowerCase()}`;
+  if (decolThen != null && decolThen > 0.25 && shares[decol] < 0.1) {
+    finding += "; the colonial questions that once filled the agenda have nearly disappeared";
+  }
+  setStoryText("storyAgenda", "finding", finding);
+  setStoryText("storyAgenda", "takeaway", d.takeaway);
+  setStoryText("storyAgenda", "caveat", d.caveat);
+}
+
+function renderStoryDivision(d) {
+  const host = storyEl("storyDivision", "chart");
+  clearNode(host);
+  const years = d.series.map((r) => r.year);
+  const agree = d.series.map((r) => (r.agreement == null ? null : r.agreement * 100));
+  const divided = d.series.map((r) => (r.divided_share == null ? null : r.divided_share * 100));
+  const ev = eventShapes(years[0], years[years.length - 1]);
+  Plotly.newPlot(host, [
+    { type: "scatter", mode: "lines", x: years, y: agree, name: "Agreement between members", line: { color: "#0072b2", width: 2.5 }, hovertemplate: "%{y:.0f}% agreement<extra></extra>" },
+    { type: "scatter", mode: "lines", x: years, y: divided, name: "Divided votes (one in ten dissented)", line: { color: "#d55e00", width: 2, dash: "dot" }, hovertemplate: "%{y:.0f}% of votes divided<extra></extra>" },
+    ev.trace,
+  ], storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { ticksuffix: "%", range: [0, 104] },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+
+  const valid = d.series.filter((r) => r.agreement != null);
+  const peak = valid.reduce((a, b) => (b.agreement > a.agreement ? b : a));
+  const low = valid.reduce((a, b) => (b.agreement < a.agreement ? b : a));
+  const last = d.series.find((r) => r.year === d.last_full_year) || valid[valid.length - 1];
+  setStoryText(
+    "storyDivision", "finding",
+    `The room was most united in ${peak.year} and most split in ${low.year}; in ${last.year} two members taking a side agreed ${pct(last.agreement)} of the time`,
+  );
+  setStoryText("storyDivision", "takeaway", d.takeaway);
+  setStoryText("storyDivision", "caveat", d.caveat);
+}
+
+function renderStoryAlignment(d) {
+  const host = storyEl("storyAlignment", "chart");
+  clearNode(host);
+  const years = d.series.map((r) => r.year);
+  const agree = d.series.map((r) => (r.agreement == null ? null : r.agreement * 100));
+  const isolated = d.series.map((r) => r.isolated_votes);
+  const ev = eventShapes(years[0], years[years.length - 1]);
+  Plotly.newPlot(host, [
+    { type: "bar", x: years, y: isolated, name: "Votes cast with two or fewer others", yaxis: "y2", marker: { color: "#e8dfcd" }, hovertemplate: "%{y} isolated votes<extra></extra>" },
+    { type: "scatter", mode: "lines", x: years, y: agree, name: `Members siding with ${d.anchor_name}`, line: { color: "#0b2238", width: 2.5 }, hovertemplate: `%{y:.0f}% sided with ${d.anchor_name}<extra></extra>` },
+    ev.trace,
+  ], storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { ticksuffix: "%", range: [0, 104] },
+    yaxis2: { overlaying: "y", side: "right", showgrid: false, rangemode: "tozero", title: { text: "isolated votes", font: { size: 11 } } },
+    hovermode: "x unified",
+    margin: { r: 56 },
+  }), PLOT_CONFIG);
+
+  const valid = d.series.filter((r) => r.agreement != null);
+  const peak = valid.reduce((a, b) => (b.agreement > a.agreement ? b : a));
+  const last = d.series.find((r) => r.year === d.last_full_year) || valid[valid.length - 1];
+  setStoryText(
+    "storyAlignment", "finding",
+    `Other members sided with ${d.anchor_name} ${pct(last.agreement)} of the time in ${last.year}, against ${pct(peak.agreement)} at the peak in ${peak.year}`,
+  );
+  setStoryText("storyAlignment", "takeaway", d.takeaway);
+
+  const list = storyEl("storyAlignment", "list");
+  clearNode(list);
+  if (d.recent_isolated && d.recent_isolated.length) {
+    const title = document.createElement("div");
+    title.className = "story-list__title";
+    title.textContent = `Latest votes ${d.anchor_name} cast with two or fewer companions`;
+    list.appendChild(title);
+    const ul = document.createElement("ul");
+    d.recent_isolated.slice(0, 6).forEach((r) => {
+      const li = document.createElement("li");
+      li.textContent = `${r.year} · ${r.title} `;
+      const span = document.createElement("span");
+      span.textContent = r.companions === 0 ? "(alone)" : `(with ${r.companions} other${r.companions === 1 ? "" : "s"})`;
+      li.appendChild(span);
+      ul.appendChild(li);
+    });
+    list.appendChild(ul);
+  }
+}
+
+function setupStoryControls() {
+  const recurring = document.getElementById("storyRecurringKey");
+  if (recurring) {
+    recurring.addEventListener("change", async () => {
+      const host = storyEl("storyRecurring", "chart");
+      if (host) setLoading(host, "Loading the series…");
+      try {
+        const res = await axios.get(`/api/story/recurring/${recurring.value}`);
+        renderStoryRecurring(res.data);
+      } catch (error) {
+        if (host) showErrorElement(host, getErrorMessage(error));
+      }
+    });
+  }
+  const select = document.getElementById("storyAnchor");
+  if (!select) return;
+  select.addEventListener("change", async () => {
+    STORY.anchor = select.value;
+    const host = storyEl("storyAlignment", "chart");
+    if (host) setLoading(host, "Recomputing…");
+    try {
+      const res = await axios.get(`/api/story/alignment?anchor=${STORY.anchor}`);
+      renderStoryAlignment(res.data);
+    } catch (error) {
+      if (host) showErrorElement(host, getErrorMessage(error));
+    }
+  });
+}
+
+function renderStoryScatter(d) {
+  const host = storyEl("storyScatter", "chart");
+  clearNode(host);
+  const [a1, a2] = d.anchors.map((a) => a.toLowerCase());
+  const [n1, n2] = d.anchor_names;
+  const byRegion = {};
+  d.points.forEach((p) => {
+    (byRegion[p.region] = byRegion[p.region] || []).push(p);
+  });
+  const traces = REGION_ORDER.filter((r) => byRegion[r]).map((region) => {
+    const pts = byRegion[region];
+    return {
+      type: "scatter", mode: "markers", name: region,
+      x: pts.map((p) => p[a1] * 100), y: pts.map((p) => p[a2] * 100),
+      text: pts.map((p) => p.name),
+      marker: { color: REGION_COLORS[region], size: 9, opacity: 0.85, line: { color: "#fff", width: 0.8 } },
+      hovertemplate: `<b>%{text}</b><br>with ${n1}: %{x:.0f}%<br>with ${n2}: %{y:.0f}%<extra></extra>`,
+    };
+  });
+  const baseKey1 = `${a1}_base`;
+  const baseKey2 = `${a2}_base`;
+  const movers = d.points
+    .filter((p) => p[baseKey1] != null)
+    .map((p) => ({ ...p, dist: Math.hypot(p[a1] - p[baseKey1], p[a2] - p[baseKey2]) }))
+    .sort((x, y) => y.dist - x.dist)
+    .slice(0, 12);
+  const annotations = movers.map((p) => ({
+    x: p[a1] * 100, y: p[a2] * 100, ax: p[baseKey1] * 100, ay: p[baseKey2] * 100,
+    xref: "x", yref: "y", axref: "x", ayref: "y",
+    showarrow: true, arrowhead: 3, arrowsize: 1, arrowwidth: 1.2, arrowcolor: "#8a94a0", text: "",
+  }));
+  const labelled = new Set([...movers.map((p) => p.code), "ISR", "GBR", "DEU", "IND", "BRA", "ZAF", "TUR", "JPN", "SAU", "UKR"]);
+  const labels = d.points.filter((p) => labelled.has(p.code));
+  traces.push({
+    type: "scatter", mode: "text", showlegend: false, hoverinfo: "skip",
+    x: labels.map((p) => p[a1] * 100), y: labels.map((p) => p[a2] * 100),
+    text: labels.map((p) => p.name), textposition: "top center", textfont: { size: 10, color: "#456783" },
+  });
+  Plotly.newPlot(host, traces, storyLayout({
+    annotations,
+    shapes: [{ type: "line", x0: 0, y0: 0, x1: 100, y1: 100, line: { color: "#c9c4b8", width: 1, dash: "dash" } }],
+    xaxis: { title: `Voted with ${n1} (% of votes where both took a side)`, range: [0, 102], ticksuffix: "%" },
+    yaxis: { title: `Voted with ${n2}`, range: [0, 102], ticksuffix: "%" },
+    legend: { y: -0.16, x: 0 },
+    margin: { t: 8, b: 84 },
+  }), PLOT_CONFIG);
+
+  const closer = d.points.filter((p) => p[a2] > p[a1]).length;
+  setStoryText(
+    "storyScatter", "finding",
+    `${closer} of ${d.points.length} members voted more often with ${n2} than with ${n1} in ${d.window[0]}–${d.window[1]}`,
+  );
+  setStoryText("storyScatter", "takeaway", d.takeaway);
+  setStoryText("storyScatter", "caveat", d.caveat);
+}
+
+function renderStoryLandmarks(items) {
+  STORY.landmarks = items;
+  const list = storyEl("storyLandmarks", "list");
+  clearNode(list);
+  items.forEach((item) => {
+    const total = (item.yes || 0) + (item.no || 0) + (item.abstain || 0) || 1;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "landmark";
+    btn.setAttribute("role", "listitem");
+    btn.dataset.rcid = String(item.rcid);
+    btn.innerHTML =
+      `<div class="landmark__year">${item.year} · ${storyEscape(item.symbol)}</div>` +
+      `<div class="landmark__label">${storyEscape(item.label)}</div>` +
+      `<div class="tally" aria-hidden="true">` +
+      `<span class="yes" style="width:${(100 * item.yes) / total}%"></span>` +
+      `<span class="abstain" style="width:${(100 * item.abstain) / total}%"></span>` +
+      `<span class="no" style="width:${(100 * item.no) / total}%"></span></div>` +
+      `<div class="landmark__tally">${item.yes} for · ${item.no} against · ${item.abstain} abstaining</div>`;
+    btn.addEventListener("click", () => selectLandmark(item.rcid));
+    list.appendChild(btn);
+  });
+  const preferred = items.find((i) => i.symbol === "A/RES/ES-11/1") || items[items.length - 1];
+  if (preferred) selectLandmark(preferred.rcid);
+}
+
+async function selectLandmark(rcid) {
+  STORY.activeLandmark = rcid;
+  document.querySelectorAll("#storyLandmarks .landmark").forEach((b) => {
+    b.classList.toggle("active", Number(b.dataset.rcid) === rcid);
+  });
+  const head = storyEl("storyLandmarks", "detail");
+  const host = storyEl("storyLandmarks", "map");
+  const item = STORY.landmarks.find((i) => i.rcid === rcid);
+  if (host) setLoading(host, "Mapping the vote…");
+  try {
+    const res = await axios.get(`/api/story/resolution/${rcid}/map`);
+    const d = res.data;
+    const t = d.tally;
+    if (head) {
+      head.innerHTML =
+        `<h4>${storyEscape(item ? item.label : d.title)}</h4>` +
+        `<p class="meta">${storyEscape(d.symbol)} · ${storyEscape(d.date)} · ${storyEscape(d.title)}</p>` +
+        `<p class="why">${storyEscape(item ? item.why : "")}</p>` +
+        `<div class="vote-legend"><span class="yes"><i></i>${t.yes} for</span>` +
+        `<span class="no"><i></i>${t.no} against</span>` +
+        `<span class="abstain"><i></i>${t.abstain} abstained</span>` +
+        `<span class="absent"><i></i>${t.absent} absent or not voting</span>` +
+        `<span>Blank: not a member at the time</span></div>`;
+      if (d.regions && d.regions.length) {
+        const rows = d.regions.map((r) => {
+          const total = r.yes + r.no + r.abstain + r.absent || 1;
+          return `<tr><th scope="row">${storyEscape(r.region)}</th><td>` +
+            `<div class="tally" aria-hidden="true"><span class="yes" style="width:${(100 * r.yes) / total}%"></span>` +
+            `<span class="abstain" style="width:${(100 * r.abstain) / total}%"></span>` +
+            `<span class="no" style="width:${(100 * r.no) / total}%"></span></div></td>` +
+            `<td class="num">${r.yes}–${r.no}–${r.abstain}</td></tr>`;
+        }).join("");
+        head.innerHTML +=
+          `<table class="region-table"><caption>How the regional groups voted (for–against–abstained)</caption>` +
+          `<tbody>${rows}</tbody></table>` +
+          (d.region_note ? `<p class="why">${storyEscape(d.region_note)}</p>` : "");
+      }
+    }
+    const code = { yes: 3, abstain: 2, no: 1, absent: 0 };
+    const label = { yes: "For", no: "Against", abstain: "Abstained", absent: "Absent / not voting" };
+    clearNode(host);
+    Plotly.newPlot(host, [{
+      type: "choropleth", locationmode: "ISO-3",
+      locations: d.votes.map((v) => v.code),
+      z: d.votes.map((v) => code[v.vote]),
+      text: d.votes.map((v) => `${v.name}: ${label[v.vote]}`),
+      zmin: 0, zmax: 3, showscale: false,
+      colorscale: [
+        [0, "#d0d0d0"], [0.25, "#d0d0d0"],
+        [0.25, "#d55e00"], [0.5, "#d55e00"],
+        [0.5, "#d38b2a"], [0.75, "#d38b2a"],
+        [0.75, "#0072b2"], [1, "#0072b2"],
+      ],
+      hovertemplate: "%{text}<extra></extra>",
+      marker: { line: { color: "#ffffff", width: 0.4 } },
+    }], storyLayout({
+      geo: { showframe: false, showcoastlines: true, coastlinecolor: "#cfd8df", projection: { type: "natural earth" }, bgcolor: "rgba(0,0,0,0)" },
+      margin: { l: 0, r: 0, t: 0, b: 0 },
+    }), { ...PLOT_CONFIG, topojsonURL: "/static/vendor/" });
+  } catch (error) {
+    if (host) showErrorElement(host, getErrorMessage(error));
+  }
+}
+
+function renderStoryRecurring(d) {
+  const host = storyEl("storyRecurring", "chart");
+  clearNode(host);
+  const select = document.getElementById("storyRecurringKey");
+  if (select && d.available && select.options.length !== d.available.length) {
+    clearNode(select);
+    d.available.forEach((a) => {
+      const opt = document.createElement("option");
+      opt.value = a.key;
+      opt.textContent = a.label;
+      select.appendChild(opt);
+    });
+  }
+  if (select) select.value = d.key;
+  const years = d.series.map((s) => s.year);
+  const bar = (key, name, color) => ({
+    type: "bar", x: years, y: d.series.map((s) => s[key]), name, marker: { color },
+    hovertemplate: `${name}: %{y}<extra></extra>`,
+  });
+  Plotly.newPlot(host, [bar("yes", "For", "#0072b2"), bar("abstain", "Abstained", "#d38b2a"), bar("no", "Against", "#d55e00")], storyLayout({
+    barmode: "stack", bargap: 0.25,
+    xaxis: { dtick: 5 },
+    yaxis: { title: "members" },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+  setStoryText("storyRecurring", "caption", d.why);
+  const first = d.series[0];
+  const last = d.series[d.series.length - 1];
+  const peak = d.series.reduce((a, b) => (b.yes > a.yes ? b : a));
+  setStoryText(
+    "storyRecurring", "finding",
+    `${d.label}: ${first.yes} supporters in ${first.year}, ${peak.yes} at the ${peak.year} peak, ${last.yes} in ${last.year}`,
+  );
+  setStoryText("storyRecurring", "takeaway", d.takeaway);
+}
+
+
+// ── The long view (whole-record trajectory on the Country Profile) ──────────
+
+async function loadCountryStory(code) {
+  const host = storyEl("profileStory", "chart");
+  if (!host) return;
+  setLoading(host, "Reading the whole record…");
+  try {
+    const res = await axios.get(`/api/story/country/${code}`);
+    renderCountryStory(res.data);
+  } catch (error) {
+    showErrorElement(host, getErrorMessage(error));
+  }
+}
+
+function renderCountryStory(d) {
+  const host = storyEl("profileStory", "chart");
+  clearNode(host);
+  const years = d.series.map((r) => r.year);
+  const colors = { usa: "#0072b2", rus: "#d55e00", chn: "#8a6d00" };
+  const line = (key, name, color, dash) => ({
+    type: "scatter", mode: "lines", name, connectgaps: false,
+    x: years, y: d.series.map((r) => (r[key] == null ? null : r[key] * 100)),
+    line: { color, width: key === "with_majority" ? 1.5 : 2.2, dash },
+    hovertemplate: `${name}: %{y:.0f}%<extra></extra>`,
+  });
+  const traces = [];
+  d.anchors.forEach((a) => {
+    const key = a.toLowerCase();
+    if (d.series.some((r) => r[key] != null)) {
+      traces.push(line(key, `with ${d.anchor_names[a] || a}`, colors[key] || "#999999"));
+    }
+  });
+  traces.push(line("with_majority", "on the winning side", "#456783", "dot"));
+  const first = Math.max(years[0], d.first_year - 1);
+  const ev = eventShapes(first, years[years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10, range: [first, years[years.length - 1]] },
+    yaxis: { ticksuffix: "%", range: [0, 104] },
+    hovermode: "x unified",
+  }), PLOT_CONFIG);
+
+  let finding = `${d.name} has cast recorded votes since ${d.first_year}`;
+  const latest = d.latest;
+  if (latest) {
+    const scored = d.anchors
+      .map((a) => ({ name: d.anchor_names[a] || a, value: latest[a.toLowerCase()] }))
+      .filter((x) => x.value != null)
+      .sort((x, y) => y.value - x.value);
+    if (scored.length >= 2) {
+      finding = `In ${latest.year} ${d.name} voted most often with ${scored[0].name} (${pct(scored[0].value)}) and least with ${scored[scored.length - 1].name} (${pct(scored[scored.length - 1].value)})`;
+    } else if (scored.length === 1) {
+      finding = `In ${latest.year} ${d.name} sided with ${scored[0].name} ${pct(scored[0].value)} of the time`;
+    }
+  }
+  setStoryText("profileStory", "finding", finding);
+  setStoryText("profileStory", "takeaway", d.takeaway);
+  setStoryText("profileStory", "caveat", d.caveat);
+}
+
+
+function renderStoryCalendar(d) {
+  const el = document.getElementById("storyCalendar");
+  if (!el || !d || !d.note) return;
+  clearNode(el);
+  const strong = document.createElement("strong");
+  strong.textContent = "Where the session stands. ";
+  el.appendChild(strong);
+  el.appendChild(document.createTextNode(d.note));
+}
