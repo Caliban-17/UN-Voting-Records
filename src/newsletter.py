@@ -27,15 +27,12 @@ from src.drift_analysis import (
     pairwise_agreement_matrix,
 )
 from src.newsletter_voice import (
-    SECTION_TITLES,
     humanize_topic_full,
     mover_detail_for,
     mover_headline_for,
     nut_graf as compose_nut_graf,
     pick_headline,
     pick_subhead,
-    strange_bedfellows_intro,
-    strange_bedfellows_one_liner,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,6 +199,18 @@ class NewsletterEdition:
 
     # Reusable raw artifacts so renderers can embed charts without recomputing.
     chart_payloads: dict = field(default_factory=dict)
+    # Whole-record context ("The bigger picture"): {stats: [{value,label,context}], takeaway}.
+    # Deliberately outside content_hash — it describes the record, not this
+    # edition's editorial selection, so it can never trigger a re-send.
+    big_picture: dict = field(default_factory=dict)
+    # In-season panel: the recorded votes of the latest fortnight in the data
+    # ({sitting, window_start, window_end, count, votes, takeaway}). Its rcids
+    # ARE part of content_hash when present, so a week with new votes always
+    # publishes; absent (off-season) it leaves the hash untouched.
+    this_week: dict = field(default_factory=dict)
+    # The week ahead: where the session stands and which recurring votes are
+    # due (src.session_calendar). Forward-looking, so outside content_hash.
+    calendar: dict = field(default_factory=dict)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -619,6 +628,149 @@ def pick_recent_year(df: pd.DataFrame, min_resolutions: int = MIN_RECENT_RESOLUT
     return int(df["year"].max())
 
 
+def _big_picture_stats(df: pd.DataFrame, recent_year: int, name_lookup) -> dict:
+    """Three or four whole-record facts that put the week's drifts in proportion:
+    how busy the Assembly is, how divided, and which way the room leans. Any
+    failure here is swallowed — context must never sink an edition."""
+    try:
+        from src import story_analysis as story
+
+        division = story.division_by_year(df)
+        by_year = {r["year"]: r for r in division["series"]}
+        # A sparse in-progress year has no whole-record reading yet; describe
+        # the last complete year instead and say so in the labels.
+        if recent_year not in by_year:
+            recent_year = story.last_full_year(df)
+        this = by_year.get(recent_year)
+        stats: list[dict] = []
+        if this:
+            record = max(division["series"], key=lambda r: r["votes"])
+            stats.append({
+                "key": "votes",
+                "raw": int(this["votes"]),
+                "value": f"{this['votes']:,}",
+                "label": f"recorded votes in {recent_year}",
+                "context": (
+                    "the most in any year on record"
+                    if record["year"] == recent_year
+                    else f"the record is {record['votes']} in {record['year']}"
+                ),
+            })
+            if this.get("agreement") is not None:
+                stats.append({
+                    "key": "agreement",
+                    "raw": float(this["agreement"]),
+                    "value": f"{this['agreement'] * 100:.0f}%",
+                    "label": "agreement between members",
+                    "context": f"how often two members that took a side voted the same way in {recent_year}",
+                })
+        try:
+            usa = story.world_alignment_with(df, "USA", name_lookup)
+            row = next((r for r in usa["series"] if r["year"] == recent_year), None)
+            if row and row.get("agreement") is not None:
+                stats.append({
+                    "key": "us_agreement",
+                    "raw": float(row["agreement"]),
+                    "value": f"{row['agreement'] * 100:.0f}%",
+                    "label": "of votes sided with the United States",
+                    "context": f"{row['isolated_votes']} votes cast with two or fewer companions in {recent_year}",
+                })
+        except ValueError:
+            pass
+        try:
+            scatter = story.alignment_scatter(df, recent_year - 2, recent_year, name_lookup=name_lookup)
+            points = scatter.get("points") or []
+            if points:
+                closer = sum(1 for p in points if p["chn"] > p["usa"])
+                stats.append({
+                    "key": "closer_china",
+                    "raw": int(closer),
+                    "value": f"{closer} of {len(points)}",
+                    "label": "members vote more often with China than with the US",
+                    "context": f"{recent_year - 2}–{recent_year}, counting votes where both took a side",
+                })
+        except (ValueError, KeyError):
+            pass
+        kept = stats[:4]
+        return {
+            "stats": kept,
+            "takeaway": division.get("takeaway", ""),
+            "year": int(recent_year),
+            "raw": {s["key"]: s["raw"] for s in kept},
+        }
+    except Exception as exc:  # noqa: BLE001 — context is optional by design
+        logger.warning("big-picture stats skipped: %s", exc)
+        return {}
+
+
+def _this_week_panel(df: pd.DataFrame, name_lookup, edition_date: Optional[str]) -> dict:
+    """The recorded votes of the latest fortnight in the data, but only when
+    the Assembly is sitting — the latest vote falls within a fortnight of the
+    edition date. Off-season the panel simply does not appear."""
+    try:
+        from src.story_analysis import recent_votes
+
+        panel = recent_votes(df, days=14, limit=10, name_lookup=name_lookup, as_of=edition_date)
+        return panel if panel.get("sitting") and panel.get("votes") else {}
+    except Exception as exc:  # noqa: BLE001 — the panel is optional by design
+        logger.warning("this-week panel skipped: %s", exc)
+        return {}
+
+
+def _calendar_panel(df: pd.DataFrame, edition_date: Optional[str]) -> dict:
+    """Where the session stands on the edition date and which recurring votes
+    are due within five weeks. Optional: never sinks an edition."""
+    try:
+        from src.session_calendar import calendar_for
+
+        return calendar_for(df, as_of=edition_date)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("calendar panel skipped: %s", exc)
+        return {}
+
+
+def _prior_ledger_record(country_focus: Optional[str]) -> Optional[dict]:
+    """The last published edition for this focus, from the committed ledger."""
+    try:
+        from src.newsletter_ledger import last_published
+
+        return last_published(country_focus)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("ledger lookup skipped: %s", exc)
+        return None
+
+
+def _annotate_big_picture_deltas(big_picture: dict, prior: Optional[dict]) -> None:
+    """Append "up 3 since the 1 September edition" to each big-picture stat
+    when the last published edition (same focus, same year) recorded the same
+    numbers in the ledger. Silent otherwise, so the first editions read clean."""
+    if not big_picture or not prior:
+        return
+    snapshot = prior.get("big_picture") or {}
+    prev = snapshot.get("raw") or {}
+    if not prev or snapshot.get("year") != big_picture.get("year"):
+        return
+    since = f"since the {prior.get('edition_date', 'last')} edition"
+    for stat in big_picture.get("stats", []):
+        key, now = stat.get("key"), stat.get("raw")
+        if key not in prev or now is None:
+            continue
+        before = prev[key]
+        if key in ("agreement", "us_agreement"):
+            diff = (now - before) * 100
+            unit = "point"
+        else:
+            diff = now - before
+            unit = ""
+        if abs(diff) < 0.5:
+            phrase = "unchanged"
+        else:
+            n = int(round(abs(diff)))
+            phrase = f"{'up' if diff > 0 else 'down'} {n}{(' ' + unit + ('s' if n != 1 else '')) if unit else ''}"
+        stat["context"] = f"{stat['context']}; {phrase} {since}"
+        stat["delta"] = round(float(diff), 2)
+
+
 def build_newsletter_edition(
     df: pd.DataFrame,
     recent_year: Optional[int] = None,
@@ -669,7 +821,6 @@ def build_newsletter_edition(
         # across editions, deterministic within one.
         headline = pick_headline(lead, name_lookup, seed=seed_for_voice)
         lede_subhead = pick_subhead(lead, seed=seed_for_voice)
-        direction_word = "fell" if lead["delta"] < 0 else "rose"
         on_topics = (
             f" The split tracked votes on {topics_phrase}."
             if topics_phrase else ""
@@ -691,7 +842,7 @@ def build_newsletter_edition(
         )
         lede = lede_subhead
     else:
-        headline = f"A rare quiet session at the UN"
+        headline = "A rare quiet session at the UN"
         lead_story = LeadStory(
             headline=headline,
             body="Voting patterns held steady across the dataset this period — itself a story.",
@@ -726,6 +877,12 @@ def build_newsletter_edition(
     # ── Resolution spotlight + quiet convergences ──────────────────────────
     spotlight = _resolution_spotlight(df, recent_year, name_lookup, drifts)
     quiet = _quiet_convergences(df, recent_year, baseline_window, name_lookup)
+
+    # ── The bigger picture ─────────────────────────────────────────────────
+    big_picture = _big_picture_stats(df, int(recent_year), name_lookup)
+    this_week = _this_week_panel(df, name_lookup, edition_date)
+    calendar = _calendar_panel(df, edition_date)
+    _annotate_big_picture_deltas(big_picture, _prior_ledger_record(country_focus))
 
     # ── By the numbers ─────────────────────────────────────────────────────
     by_numbers: list[StatHighlight] = []
@@ -850,6 +1007,8 @@ def build_newsletter_edition(
         toc_titles.append(("quiet-convergences", "Quiet Convergences"))
     toc_titles.append(("next-to-watch", "Next to Watch"))
     toc_titles.append(("methodology", "Methodology & Sources"))
+    if this_week.get("votes"):
+        toc_titles.insert(0, ("this-week", "This Week in the Assembly"))
     in_this_issue = [
         TOCItem(number=i + 1, anchor=anchor, title=title)
         for i, (anchor, title) in enumerate(toc_titles)
@@ -993,6 +1152,10 @@ def build_newsletter_edition(
         # Spotlight rcid alone — same rcid = same spotlight, same hash.
         "spotlight_rcid": spotlight.rcid if spotlight else None,
     }
+    # Only in season: adding the key off-season would change every hash and
+    # trigger one spurious re-send of an unchanged edition.
+    if this_week.get("votes"):
+        content_payload["this_week"] = sorted(int(v["rcid"]) for v in this_week["votes"])
     content_hash = _hashlib.sha256(
         _json.dumps(content_payload, sort_keys=True, default=str).encode()
     ).hexdigest()
@@ -1023,6 +1186,9 @@ def build_newsletter_edition(
         nut_graf=nut_graf,
         in_this_issue=in_this_issue,
         by_the_numbers=by_numbers,
+        big_picture=big_picture,
+        this_week=this_week,
+        calendar=calendar,
         lead_story=lead_story,
         lead_story_why_it_matters=lead_why,
         top_movers=top_movers,
@@ -1116,4 +1282,7 @@ def edition_from_dict(payload: dict) -> NewsletterEdition:
         methodology=payload.get("methodology") or [],
         sources=payload.get("sources") or [],
         chart_payloads=payload.get("chart_payloads") or {},
+        big_picture=payload.get("big_picture") or {},
+        this_week=payload.get("this_week") or {},
+        calendar=payload.get("calendar") or {},
     )

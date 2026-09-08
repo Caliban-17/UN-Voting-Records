@@ -18,17 +18,8 @@ from __future__ import annotations
 import html as _html
 from typing import Iterable
 
-from src.newsletter import (
-    CoalitionMove,
-    CoalitionSnapshot,
-    NewsletterEdition,
-    QuietConvergence,
-    ResolutionSpotlight,
-    StatHighlight,
-    WatchItem,
-)
+from src.newsletter import NewsletterEdition, StatHighlight
 from src.newsletter_chart import (
-    alliance_arrow_svg,
     dumbbell_chart_svg,
     p5_fingerprint_svg,
     slope_chart_svg,
@@ -39,7 +30,6 @@ from src.newsletter_voice import (
     SECTION_TITLES,
     humanize_topic_full,
     strange_bedfellows_intro,
-    strange_bedfellows_one_liner,
 )
 
 
@@ -115,6 +105,10 @@ def render_markdown(edition: NewsletterEdition) -> str:
     lines.append("")
     lines.append(edition.nut_graf)
     lines.append("")
+    cal = getattr(edition, "calendar", None) or {}
+    if cal.get("note"):
+        lines.append(f"> **The week ahead:** {cal['note']}")
+        lines.append("")
 
     # In this issue
     if edition.in_this_issue:
@@ -123,12 +117,40 @@ def render_markdown(edition: NewsletterEdition) -> str:
             lines.append(f"{item.number}. {item.title}")
         lines.append("")
 
+    # This week in the Assembly (in season only)
+    week = getattr(edition, "this_week", None) or {}
+    if week.get("votes"):
+        lines.append("## This Week in the Assembly")
+        lines.append("")
+        if week.get("takeaway"):
+            lines.append(week["takeaway"])
+            lines.append("")
+        for v in week["votes"]:
+            against = (
+                f" Against: {', '.join(v['dissenters'])}." if v.get("dissenters")
+                else (f" {v['dissenter_count']} against." if v.get("dissenter_count") else "")
+            )
+            lines.append(f"- **{v['date']}** — {v['title']}: {v['yes']}–{v['no']}–{v['abstain']}.{against}")
+        lines.append("")
+
     # By the numbers
     if edition.by_the_numbers:
         lines.append(f"## {SECTION_TITLES['by_the_numbers']}")
         lines.append("")
         for stat in edition.by_the_numbers:
             lines.append(f"- **{stat.value}** — {stat.label}. _{stat.context}_")
+        lines.append("")
+
+    # The bigger picture — whole-record context
+    big = getattr(edition, "big_picture", None) or {}
+    if big.get("stats"):
+        lines.append("## The bigger picture")
+        lines.append("")
+        for s in big["stats"]:
+            lines.append(f"- **{s['value']}** — {s['label']}. _{s['context']}_")
+        if big.get("takeaway"):
+            lines.append("")
+            lines.append(big["takeaway"])
         lines.append("")
 
     # Lead story
@@ -313,6 +335,10 @@ def render_text(edition: NewsletterEdition) -> str:
     lines.append(_wrap_para(edition.lede))
     lines.append("")
     lines.append(_wrap_para(edition.nut_graf))
+    cal = getattr(edition, "calendar", None) or {}
+    if cal.get("note"):
+        lines.append("")
+        lines.append(_wrap_para(f"THE WEEK AHEAD: {cal['note']}"))
 
     # In this issue
     if edition.in_this_issue:
@@ -320,12 +346,32 @@ def render_text(edition: NewsletterEdition) -> str:
         for item in edition.in_this_issue:
             lines.append(f"  {item.number:>2}. {item.title}")
 
+    week = getattr(edition, "this_week", None) or {}
+    if week.get("votes"):
+        section("This Week in the Assembly")
+        if week.get("takeaway"):
+            lines.append(_wrap_para(week["takeaway"]))
+            lines.append("")
+        for v in week["votes"]:
+            lines.append(f"  {v['date']}  {v['yes']:>3}-{v['no']:<3}-{v['abstain']:<3} {v['title'][:60]}")
+            if v.get("dissenters"):
+                lines.append(f"            against: {', '.join(v['dissenters'])}")
+
     # By the numbers
     if edition.by_the_numbers:
         section(SECTION_TITLES["by_the_numbers"])
         for stat in edition.by_the_numbers:
             lines.append(f"  • {stat.value:>10}   {stat.label}")
             lines.append(f"            {' ':>10}   ({stat.context})")
+
+    big = getattr(edition, "big_picture", None) or {}
+    if big.get("stats"):
+        section("The bigger picture")
+        for s in big["stats"]:
+            lines.append(f"  • {s['value']:>10}   {s['label']}")
+            lines.append(f"            {' ':>10}   ({s['context']})")
+        if big.get("takeaway"):
+            lines.append(_wrap_para(big["takeaway"]))
 
     # Lead story
     section(f"{SECTION_TITLES['shift']}: {edition.lead_story.headline}")
@@ -451,31 +497,48 @@ _S = {
         "'Palatino Linotype',serif;color:#0b2238;line-height:1.55;"
     ),
     "container": (
-        "max-width:680px;margin:0 auto;padding:32px 28px;background:#f8f6f1;"
+        "max-width:680px;margin:0 auto;padding:28px 28px 32px;background:#fbfaf7;"
+        "border-top:4px solid #0b2238;"
+    ),
+    "nameplate": (
+        "font-family:'Palatino Linotype','Book Antiqua',Palatino,Georgia,serif;"
+        "font-size:22px;letter-spacing:0.08em;text-transform:uppercase;"
+        "color:#0b2238;font-weight:700;margin:0 0 2px;"
     ),
     "kicker": (
         "font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;"
         "text-transform:uppercase;letter-spacing:0.16em;font-size:11px;"
-        "color:#0e6f82;font-weight:700;margin-bottom:4px;"
+        "color:#456783;font-weight:700;margin:0 0 18px;padding-bottom:10px;"
+        "border-bottom:1px solid #d7d3c9;"
     ),
     "masthead_meta": (
         "color:#456783;font-size:13px;font-style:italic;margin:0 0 18px;"
     ),
     "h1": (
-        "font-size:30px;line-height:1.18;margin:4px 0 6px;letter-spacing:0.005em;"
+        "font-size:32px;line-height:1.15;margin:4px 0 8px;letter-spacing:-0.005em;"
         "color:#0b2238;font-weight:700;"
     ),
     "subhead": (
-        "font-size:17px;line-height:1.4;color:#23425f;font-weight:600;"
+        "font-size:18px;line-height:1.4;color:#23425f;font-weight:400;"
         "margin:6px 0 16px;"
     ),
     "lede": (
         "font-size:17px;line-height:1.55;color:#23425f;"
-        "border-left:3px solid #d46042;padding:6px 0 6px 14px;margin:18px 0;"
+        "border-left:3px solid #0b2238;padding:6px 0 6px 14px;margin:18px 0;"
         "font-style:italic;"
     ),
     "nut": (
         "font-size:15.5px;line-height:1.55;color:#0b2238;margin:14px 0;"
+    ),
+    "calendar_box": (
+        "border:1px solid #d7d3c9;border-left:3px solid #0e6f82;background:#f3f8f9;"
+        "border-radius:8px;padding:10px 14px;margin:14px 0 6px;font-size:14px;"
+        "line-height:1.5;color:#23425f;"
+    ),
+    "calendar_label": (
+        "font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;"
+        "text-transform:uppercase;letter-spacing:0.12em;font-size:11px;"
+        "color:#0e6f82;font-weight:700;margin-right:8px;"
     ),
     "toc": (
         "border:1px solid #d7d3c9;border-radius:8px;background:#fff;"
@@ -490,42 +553,44 @@ _S = {
         "padding:3px 0;font-size:14px;color:#0b2238;"
     ),
     "h2": (
-        "font-size:21px;margin:34px 0 8px;padding:0 0 6px;border-bottom:2px solid #d7d3c9;"
-        "color:#0b2238;font-weight:700;"
+        "font-size:22px;line-height:1.25;margin:38px 0 10px;padding:12px 0 0;"
+        "border-top:2px solid #0b2238;color:#0b2238;font-weight:700;"
     ),
     "h3": (
-        "font-size:16px;margin:22px 0 4px;color:#0e6f82;font-weight:700;"
+        "font-size:17px;line-height:1.3;margin:22px 0 4px;color:#0b2238;font-weight:700;"
     ),
     "why_box": (
-        "background:#fff8ea;border-left:3px solid #d38b2a;padding:8px 12px;"
-        "margin:10px 0 14px;font-size:14px;color:#23425f;font-style:italic;"
+        "border-left:2px solid #0b2238;padding:4px 0 4px 12px;"
+        "margin:10px 0 16px;font-size:14px;color:#456783;font-style:italic;"
     ),
     "lead_card": (
-        "background:#fff;border:1px solid #d7d3c9;border-left:4px solid #d46042;"
-        "border-radius:10px;padding:14px 18px;margin:12px 0;"
+        "background:#fff;border:1px solid #d7d3c9;"
+        "border-radius:8px;padding:16px 18px;margin:12px 0;"
     ),
     "mover_card": (
-        "background:#fff;border:1px solid #d7d3c9;border-left:4px solid #1f8ea5;"
-        "border-radius:10px;padding:12px 16px;margin:8px 0;"
+        "background:#fff;border:1px solid #d7d3c9;"
+        "border-radius:8px;padding:12px 16px;margin:8px 0;"
     ),
     "convergence_card": (
-        "background:#f3f9f5;border:1px solid #c9e6d2;border-left:4px solid #2a9d57;"
-        "border-radius:10px;padding:10px 14px;margin:8px 0;"
+        "background:#eef4fb;border:1px solid #c7d9ee;border-left:4px solid #0072b2;"
+        "border-radius:8px;padding:10px 14px;margin:8px 0;"
     ),
     "spotlight_card": (
-        "background:#fff;border:1px solid #d7d3c9;border-left:4px solid #c64141;"
-        "border-radius:10px;padding:14px 18px;margin:10px 0;"
+        "background:#fff;border:1px solid #d7d3c9;border-left:4px solid #d55e00;"
+        "border-radius:8px;padding:14px 18px;margin:10px 0;"
     ),
     "stat_cell": (
-        "background:#fff;border:1px solid #d7d3c9;border-left:4px solid #1f8ea5;"
-        "border-radius:8px;padding:10px 12px;vertical-align:top;"
+        "background:#fff;border:1px solid #d7d3c9;"
+        "border-radius:8px;padding:12px 14px 10px;vertical-align:top;"
     ),
     "stat_value": (
-        "font-size:22px;font-weight:700;color:#0b2238;"
+        "font-size:26px;line-height:1;font-weight:700;color:#0b2238;"
         "font-family:'Palatino Linotype','Book Antiqua',serif;"
     ),
     "stat_label": (
-        "font-size:12.5px;color:#23425f;margin-top:2px;"
+        "font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;"
+        "font-size:11px;letter-spacing:0.06em;text-transform:uppercase;"
+        "color:#456783;margin-top:8px;font-weight:700;"
     ),
     "stat_context": (
         "font-size:11.5px;color:#456783;margin-top:6px;font-style:italic;"
@@ -639,10 +704,11 @@ def render_html(edition: NewsletterEdition) -> str:
         '</div>'
     )
 
-    # Masthead
+    # Masthead — nameplate first, so the publication reads as a publication.
+    o.append(f'<div style="{_S["nameplate"]}">{_esc(edition.publication)}</div>')
     o.append(
-        f'<div style="{_S["kicker"]}">{_esc(edition.publication)} · at the UN this week · '
-        f'Edition №{edition.edition_number}</div>'
+        f'<div style="{_S["kicker"]}">At the UN this week · Edition №{edition.edition_number} · '
+        f'{_esc(edition.dateline)}</div>'
     )
     o.append(f'<h1 style="{_S["h1"]}">{_esc(edition.headline)}</h1>')
     o.append(f'<p style="{_S["subhead"]}">{_esc(edition.subhead)}</p>')
@@ -655,6 +721,12 @@ def render_html(edition: NewsletterEdition) -> str:
     # Lede + nut graf
     o.append(f'<p style="{_S["lede"]}">{_esc(edition.lede)}</p>')
     o.append(f'<p style="{_S["nut"]}">{_esc(edition.nut_graf)}</p>')
+    cal = getattr(edition, "calendar", None) or {}
+    if cal.get("note"):
+        o.append(
+            f'<div style="{_S["calendar_box"]}"><span style="{_S["calendar_label"]}">The week ahead</span>'
+            f'{_esc(cal["note"])}</div>'
+        )
 
     # In this issue
     if edition.in_this_issue:
@@ -669,10 +741,49 @@ def render_html(edition: NewsletterEdition) -> str:
             )
         o.append('</div>')
 
+    # This week in the Assembly — leads the issue when the session is sitting
+    week = getattr(edition, "this_week", None) or {}
+    if week.get("votes"):
+        o.append(f'<h2 id="this-week" style="{_S["h2"]}">This Week in the Assembly</h2>')
+        if week.get("takeaway"):
+            o.append(f'<p style="{_S["nut"]}">{_esc(week["takeaway"])}</p>')
+        for v in week["votes"]:
+            o.append(f'<div style="{_S["mover_card"]}">')
+            o.append(
+                f'<p style="margin:0 0 2px;font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;'
+                f'font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#456783;">'
+                f'{_esc(v["date"])} · {_esc(v.get("theme") or "")}</p>'
+            )
+            o.append(f'<h3 style="{_S["h3"]};margin-top:2px;">{_esc(v["title"])}</h3>')
+            o.append(vote_tally_svg(int(v["yes"]), int(v["no"]), int(v["abstain"]), width=520, label=None))
+            if v.get("dissenters"):
+                o.append(
+                    f'<p style="margin:6px 0 0;font-size:13.5px;"><strong>Against:</strong> '
+                    f'{_esc(", ".join(v["dissenters"]))}</p>'
+                )
+            elif v.get("dissenter_count"):
+                o.append(f'<p style="margin:6px 0 0;font-size:13.5px;color:#456783;">{int(v["dissenter_count"])} members against.</p>')
+            o.append('</div>')
+
     # By the numbers
     if edition.by_the_numbers:
         o.append(f'<h2 id="by-the-numbers" style="{_S["h2"]}">{_esc(SECTION_TITLES["by_the_numbers"])}</h2>')
         o.append(_stat_row_html(edition.by_the_numbers))
+
+    # The bigger picture — the week's moves against the whole record
+    big = getattr(edition, "big_picture", None) or {}
+    if big.get("stats"):
+        o.append(f'<h2 id="bigger-picture" style="{_S["h2"]}">The bigger picture</h2>')
+        o.append(
+            f'<p style="{_S["why_box"]}">This week against the whole record since 1946: '
+            f'how busy the Assembly is, how divided, and which way the room leans.</p>'
+        )
+        o.append(_stat_row_html([
+            StatHighlight(value=s["value"], label=s["label"], context=s["context"])
+            for s in big["stats"]
+        ]))
+        if big.get("takeaway"):
+            o.append(f'<p style="margin:8px 0 0;font-size:14.5px;color:#23425f;">{_esc(big["takeaway"])}</p>')
 
     # Top drifts chart (inline SVG — email-safe, no remote images).
     raw_drifts = edition.chart_payloads.get("top_drifts_raw") or []
@@ -816,7 +927,7 @@ def render_html(edition: NewsletterEdition) -> str:
         s = edition.resolution_spotlight
         o.append(f'<h2 id="resolution-spotlight" style="{_S["h2"]}">{_esc(SECTION_TITLES["spotlight"])}</h2>')
         o.append(f'<div style="{_S["spotlight_card"]}">')
-        o.append(f'<h3 style="{_S["h3"]};color:#c64141;">"{_esc(s.title)}"</h3>')
+        o.append(f'<h3 style="{_S["h3"]};color:#d55e00;">"{_esc(s.title)}"</h3>')
         meta_bits = [s.date]
         if s.topic:
             meta_bits.append(f"topic: {s.topic}")

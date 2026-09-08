@@ -24,7 +24,6 @@ import logging
 import re
 import uuid
 from email.message import EmailMessage
-from typing import Iterable
 
 import cairosvg
 

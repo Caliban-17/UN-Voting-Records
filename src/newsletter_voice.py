@@ -13,7 +13,6 @@ the non-aligned bloc"* rather than *"Argentina–Turkmenistan alignment fell
 from __future__ import annotations
 
 import hashlib
-import random
 
 
 # ── Headlines ───────────────────────────────────────────────────────────────
@@ -255,11 +254,20 @@ _TOPIC_SHORTHAND: dict[str, str] = {
 # "on Israeli settlements" reads right).
 _PROPER_NOUNS = {
     "israel", "israeli", "palestine", "palestinian",
-    "un", "unrwa", "iaea", "icc", "icj", "nato", "eu",
-    "us", "usa", "uk", "russia", "russian", "china",
+    "russia", "russian", "china",
     "korean", "north korean", "iran", "iranian",
     "ukraine", "ukrainian", "syria", "syrian",
-    "middle east",
+    "middle east", "cuba", "cuban", "africa", "african", "asia", "asian",
+    "europe", "european", "latin america", "caribbean", "pacific",
+}
+
+# Initialisms that must stay fully upper-case ("HIV/AIDS", "UNRWA"), not be
+# title-cased into "Hiv/Aids" or "Unrwa". Applied after _PROPER_NOUNS.
+_ACRONYMS = {
+    "un", "unrwa", "unhcr", "unesco", "unicef", "undp", "unep", "iaea", "icc",
+    "icj", "nato", "eu", "us", "usa", "uk", "hiv", "aids", "osce", "asean",
+    "guam", "npt", "ctbt", "wto", "imf", "opec", "plo", "dprk", "wmd", "wfp",
+    "ecosoc", "sdg", "sdgs", "g77",
 }
 
 
@@ -276,6 +284,9 @@ def _restore_proper_nouns(text: str) -> str:
         # Capitalize each word in the matched form.
         replacement = " ".join(w.capitalize() for w in pn.split())
         out = pattern.sub(replacement, out)
+    for acro in sorted(_ACRONYMS, key=len, reverse=True):
+        pattern = _re.compile(rf"\b{_re.escape(acro)}\b", _re.IGNORECASE)
+        out = pattern.sub(acro.upper(), out)
     return out
 
 

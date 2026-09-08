@@ -106,6 +106,14 @@ def is_duplicate(
     return bool(prior and prior.get("content_hash") == edition.content_hash)
 
 
+def big_picture_snapshot(big_picture: Optional[dict]) -> Optional[dict]:
+    """The part of an edition's big-picture context worth remembering: the
+    year it describes and the raw numbers, nothing rendered."""
+    if not big_picture or not big_picture.get("raw"):
+        return None
+    return {"year": big_picture.get("year"), "raw": dict(big_picture["raw"])}
+
+
 def _append(
     *,
     slug: str,
@@ -114,6 +122,7 @@ def _append(
     country_focus: Optional[str],
     content_hash: str,
     path: Optional[Path] = None,
+    big_picture: Optional[dict] = None,
 ) -> dict:
     """Append one record to the ledger and persist. Returns the record.
 
@@ -136,6 +145,10 @@ def _append(
         "content_hash": content_hash,
         "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
+    if big_picture:
+        # Numeric snapshot ({year, raw: {key: number}}) so the next edition can
+        # say "up 3 since the 1 September edition".
+        record["big_picture"] = big_picture
     records.append(record)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(records, indent=2) + "\n", encoding="utf-8")
@@ -160,6 +173,7 @@ def record_published(
         country_focus=edition.country_focus or None,
         content_hash=edition.content_hash,
         path=path,
+        big_picture=big_picture_snapshot(getattr(edition, "big_picture", None)),
     )
 
 
@@ -180,4 +194,5 @@ def record_published_dict(
         country_focus=edition_dict.get("country_focus") or None,
         content_hash=edition_dict["content_hash"],
         path=path,
+        big_picture=big_picture_snapshot(edition_dict.get("big_picture")),
     )
