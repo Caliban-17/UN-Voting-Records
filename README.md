@@ -84,18 +84,25 @@ measurement run over every complete year since 1946:
 
 | Lens | Partition it predicts | Components of its fingerprint |
 |---|---|---|
-| Realism | treaty alliances (NATO and US bilateral treaties; the Warsaw Pact and CSTO) | alliances' explained variance, on all items and on security items; camp cohesion; security agenda share |
-| Liberalism | — | agreement across members; share of lopsided votes; institution-building agenda share |
+| Realism | treaty alliances (NATO and US bilateral treaties; the Warsaw Pact and CSTO), checked against Correlates of War defence-pact communities to 2012 | alliances' explained variance, on all items and on security items; camp cohesion; security agenda share |
+| Liberalism | regime type (V-Dem's Regimes of the World: democracies vs autocracies) | agreement across members; share of lopsided votes; institution-building agenda share; democracies' explained variance, on all and on rights items; democracy cohesion |
 | World-systems | income tiers (World Bank: core, semi-periphery, periphery) | tiers' explained variance, on all and on economic items; core cohesion; economic agenda share |
 | Constructivism | the UN's regional groups | groups' explained variance, on all and on rights items; normative agenda share; support for norm-cascade resolutions |
-| Feminist IR | states with a declared feminist foreign policy | gender agenda share; support on gender votes; the cohort's cohesion and explained variance |
+| Feminist IR | states with a declared feminist foreign policy; members in thirds by women's share of parliament | gender agenda share; support on gender votes; the cohort's cohesion and explained variance; representation's explained variance and its link to rights votes |
+
+Two further readings sit beside the lenses: the membership's own character by year (share of
+democracies and liberal democracies, average women's share of parliaments, share bound by a
+defence pact) and the rank correlation, across members, between a state's liberal-democracy
+score or women's representation and its support for the year's recorded human-rights resolutions.
 
 The core measurement is explained variance between groups, pooled over a year's recorded votes,
 minus a permutation baseline. The three partitions are directly comparable ("what organises the
 room"); the five indices are each scaled to their own range and read as "how pronounced is this
 lens's signature this year", with the most pronounced lens named per decade. Proxies and caveats
-are printed on the page. Logic: `src/lenses.py`; partitions: `src/lenses_partitions.py`; the
-World Bank classification: `data/world_bank_income_groups.csv` (CC BY 4.0).
+are printed on the page. Logic: `src/lenses.py`; partitions: `src/lenses_partitions.py`. The
+supplementary datasets (World Bank income groups, V-Dem regimes via Our World in Data, IPU and
+V-Dem women-in-parliament shares, Correlates of War alliances) are built into `data/` by
+`scripts/build_supplementary.py`; sources and licences are listed in `data/supplementary_sources.md`.
 
 ### 🏁 Country Profile
 

@@ -52,8 +52,9 @@ src/                       Analysis + newsletter library (no Flask imports here)
                            typical dates of recurring votes, votes just landed
   lenses.py                Through which lens: explained variance by partition, cohesion,
                            agenda shares, norm cascades, per-lens indices, eras
-  lenses_partitions.py     Curated year-aware partitions: alliance camps, income tiers
-                           (World Bank CSV in data/), feminist-foreign-policy cohort
+  lenses_partitions.py     Year-aware partitions: curated alliance camps and the feminist-
+                           foreign-policy cohort; income tiers, regime type, women's
+                           representation and COW defence-pact communities read from data/
   regional_groups.py       UN regional groups by ISO-3 (+ historical states, lineages)
   data_processing.py       CSV/parquet loading, schema normalisation, vote matrix, entropy
   country_display.py       ISO-3 -> editorial names ("Iran", "North Korea") + title_case_name()
@@ -87,9 +88,12 @@ static/css/style.css       Styles; Okabe-Ito colour tokens (--ok / --warn / --ba
 static/vendor/             Self-hosted Plotly 2.27, axios 1.20 and the world topojson
 templates/index.html       The one page; Plotly + axios served from static/vendor/
 scripts/refresh_data.py    Fetch new votes and merge them into the CSV (see "Data")
+scripts/build_supplementary.py  Build data/{vdem_regimes,women_in_parliament,cow_defense_communities}.csv
+                           from OWID / World Bank / Correlates of War downloads (see data/supplementary_sources.md)
 tests/                     pytest suite (see "Testing")
 data/                      CSV + parquet cache (gitignored), known_events.json and
-                           published_ledger.json (committed)
+                           published_ledger.json (committed); the lens layer's supplementary
+                           CSVs are committed too (force-added past the data/*.csv ignore rule)
 docs/                      Older planning/summary docs; may be stale
 .github/workflows/         tests, refresh-data, publish-newsletter, validate-events
 ```

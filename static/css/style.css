@@ -1515,3 +1515,5 @@ p {
 @media (max-width: 740px) { .methods dl { grid-template-columns: 1fr; } .era-strip { margin-left: 10px; margin-right: 10px; } }
 .era-strip__cell small { display: block; opacity: 0.85; font-size: 0.66rem; }
 .lens-close { color: var(--ink-500); font-size: 0.8rem; white-space: nowrap; }
+.methods__sources-title { margin: 14px 0 4px; font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-500); }
+.methods__sources { margin-top: 0 !important; }

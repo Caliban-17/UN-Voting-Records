@@ -3540,8 +3540,12 @@ const PARTITION_LABELS = {
   alliance: "Treaty alliances (realism)",
   tier: "Income tiers (world-systems)",
   region: "Regional groups (constructivism)",
+  regime: "Regime type (liberalism)",
+  democracy: "Democracies vs autocracies (liberalism)",
+  pact: "Defence-pact communities (COW, to 2012)",
+  representation: "Women in parliament, thirds (feminist IR)",
 };
-const PARTITION_COLORS = { alliance: "#0b2238", tier: "#d55e00", region: "#009e73" };
+const PARTITION_COLORS = { alliance: "#0b2238", tier: "#d55e00", region: "#009e73", regime: "#0072b2", democracy: "#0072b2", pact: "#0b2238", representation: "#cc79a7" };
 
 function pctOrNull(v) {
   return v == null ? null : v * 100;
@@ -3559,7 +3563,7 @@ async function loadLenses(force = false) {
   LENS.loading = (async () => {
     try {
       requirePlotly();
-      ["lensOrganise", "lensHomeTurf", "lensFingerprints", "lensCascades", "lensNorthSouth", "lensCohesion"].forEach((id) => {
+      ["lensOrganise", "lensHomeTurf", "lensFingerprints", "lensCascades", "lensNorthSouth", "lensCharacter", "lensLinks", "lensCohesion"].forEach((id) => {
         const host = storyEl(id, "chart");
         if (host) setLoading(host, "Reading the whole record through five lenses… (the first load takes a moment)");
       });
@@ -3571,6 +3575,8 @@ async function loadLenses(force = false) {
       renderLensEras(res.data);
       renderLensCascades(res.data);
       renderLensNorthSouth(res.data);
+      renderLensCharacter(res.data);
+      renderLensLinks(res.data);
       renderLensCohesion(res.data);
       renderLensMethods(res.data);
       LENS.loaded = true;
@@ -3612,6 +3618,8 @@ function renderLensOrganise(d) {
   Plotly.newPlot(host, [
     partitionLine(d, "region", d.partitions),
     partitionLine(d, "alliance", d.partitions),
+    partitionLine(d, "pact", d.partitions, "dash"),
+    partitionLine(d, "regime", d.partitions),
     partitionLine(d, "tier", d.partitions),
     ev.trace,
   ], storyLayout({
@@ -3622,11 +3630,11 @@ function renderLensOrganise(d) {
   }), PLOT_CONFIG);
 
   const means = {};
-  ["region", "alliance", "tier"].forEach((s) => {
+  ["region", "alliance", "tier", "regime"].forEach((s) => {
     means[s] = decadeMeans(d.years, d.partitions[s].map((p) => p.adjusted));
   });
   const decades = Object.keys(means.region).sort();
-  const regionWins = decades.filter((dec) => means.region[dec] >= (means.alliance[dec] || 0) && means.region[dec] >= (means.tier[dec] || 0)).length;
+  const regionWins = decades.filter((dec) => ["alliance", "tier", "regime"].every((s) => means.region[dec] >= (means[s][dec] || 0))).length;
   const alliancePeak = d.years.reduce((best, y, i) => {
     const v = d.partitions.alliance[i].adjusted;
     return v != null && v > best.v ? { y, v } : best;
@@ -3635,22 +3643,27 @@ function renderLensOrganise(d) {
   setStoryText(
     "lensOrganise", "finding",
     regionWins === decades.length
-      ? `The UN's own regional groups have predicted votes better than treaty alliances or wealth in every decade`
-      : `The UN's regional groups predicted votes better than alliances or wealth in ${regionWins} of ${decades.length} decades`,
+      ? `The UN's own regional groups have predicted votes better than alliances, wealth or regime type in every decade`
+      : `The UN's regional groups predicted votes better than alliances, wealth or regime type in ${regionWins} of ${decades.length} decades`,
   );
+  const pct = (v) => (v == null ? "–" : `${(v * 100).toFixed(0)}%`);
+  const cowLast = d.cow_years && d.cow_years[1] ? d.years.indexOf(d.cow_years[1]) : -1;
+  const cowNote = cowLast >= 0 && d.partitions.pact[cowLast].adjusted != null
+    ? ` The defence-pact communities of the Correlates of War data explained ${pct(d.partitions.pact[cowLast].adjusted)} in ${d.years[cowLast]} against ${pct(d.partitions.alliance[cowLast].adjusted)} for the curated camps.`
+    : "";
   setStoryText(
     "lensOrganise", "takeaway",
-    `Treaty alliances explained the most in ${alliancePeak.y} (${(alliancePeak.v * 100).toFixed(0)}% beyond chance) and ${(d.partitions.alliance[last].adjusted * 100).toFixed(0)}% in ${d.years[last]}; ` +
-    `regional groups ${(d.partitions.region[last].adjusted * 100).toFixed(0)}% and income tiers ${(d.partitions.tier[last].adjusted * 100).toFixed(0)}% in ${d.years[last]}.`,
+    `Treaty alliances explained the most in ${alliancePeak.y} (${pct(alliancePeak.v)} beyond chance) and ${pct(d.partitions.alliance[last].adjusted)} in ${d.years[last]}; ` +
+    `regional groups ${pct(d.partitions.region[last].adjusted)}, regime type ${pct(d.partitions.regime[last].adjusted)} and income tiers ${pct(d.partitions.tier[last].adjusted)} in ${d.years[last]}.${cowNote}`,
   );
 }
 
 function renderLensHomeTurf(d) {
   const host = storyEl("lensHomeTurf", "chart");
   clearNode(host);
-  const label = { alliance: "Alliances on security items", tier: "Income tiers on economic items", region: "Regional groups on rights items" };
+  const label = { alliance: "Alliances on security items", tier: "Income tiers on economic items", region: "Regional groups on rights items", democracy: "Democracies vs autocracies on rights items" };
   const smooth = d.home_turf_smoothed || {};
-  const traces = ["region", "alliance", "tier"].map((s) => ({
+  const traces = ["region", "alliance", "democracy", "tier"].map((s) => ({
     type: "scatter", mode: "lines", name: label[s], connectgaps: false,
     x: d.years, y: (smooth[s] || d.home_turf[s].map((p) => p.adjusted)).map(pctOrNull),
     customdata: d.home_turf[s].map((p) => (p.adjusted == null ? "–" : (p.adjusted * 100).toFixed(0) + "%")),
@@ -3666,8 +3679,8 @@ function renderLensHomeTurf(d) {
     const v = d.home_turf[s][i].adjusted;
     return v != null && v > best.v ? { y, v } : best;
   }, { y: null, v: -1 });
-  const a = peak("alliance"), t = peak("tier"), r = peak("region");
-  setStoryText("lensHomeTurf", "finding", `On security items alliances explained up to ${(a.v * 100).toFixed(0)}% of the vote (${a.y}); on economic items income tiers up to ${(t.v * 100).toFixed(0)}% (${t.y}); on rights items regional groups up to ${(r.v * 100).toFixed(0)}% (${r.y})`);
+  const a = peak("alliance"), t = peak("tier"), r = peak("region"), dm = peak("democracy");
+  setStoryText("lensHomeTurf", "finding", `On security items alliances explained up to ${(a.v * 100).toFixed(0)}% of the vote (${a.y}); on economic items income tiers up to ${(t.v * 100).toFixed(0)}% (${t.y}); on rights items regional groups up to ${(r.v * 100).toFixed(0)}% (${r.y}) and the democracy line up to ${(dm.v * 100).toFixed(0)}% (${dm.y})`);
   setStoryText("lensHomeTurf", "takeaway", "Peaks are single years; lines average five. Gaps are stretches with fewer than five recorded votes on the theme.");
 }
 
@@ -3778,6 +3791,8 @@ function renderLensCohesion(d) {
     ["core", "Core (high income)", "#8a6d00", "dot"],
     ["periphery", "Periphery (low income)", "#e69f00", "dot"],
     ["regions", "Regional groups (average)", "#009e73", "dash"],
+    ["democracies", "Democracies", "#0072b2", "solid"],
+    ["pacts", "Defence-pact communities (average, to 2012)", "#56b4e9", "dash"],
   ];
   const traces = spec.map(([k, name, color, dash]) => ({
     type: "scatter", mode: "lines", name, connectgaps: false,
@@ -3804,7 +3819,8 @@ function renderLensCohesion(d) {
       ? `In 1985 the Soviet camp voted together ${(sov * 100).toFixed(0)}% of the time and the US-led camp ${(d.cohesion.us_led[i1985] * 100).toFixed(0)}%; in ${d.years[last]} the periphery is the most disciplined bloc at ${(d.cohesion.periphery[last] * 100).toFixed(0)}%`
       : "Bloc discipline over the record",
   );
-  setStoryText("lensCohesion", "takeaway", `US-led camp ${(d.cohesion.us_led[last] * 100).toFixed(0)}%, Russian-led camp ${(d.cohesion.soviet_led[last] * 100).toFixed(0)}%, core ${(d.cohesion.core[last] * 100).toFixed(0)}%, regional groups ${(d.cohesion.regions[last] * 100).toFixed(0)}% in ${d.years[last]}.`);
+  const dem = d.cohesion.democracies[last], aut = d.cohesion.autocracies[last];
+  setStoryText("lensCohesion", "takeaway", `US-led camp ${(d.cohesion.us_led[last] * 100).toFixed(0)}%, Russian-led camp ${(d.cohesion.soviet_led[last] * 100).toFixed(0)}%, core ${(d.cohesion.core[last] * 100).toFixed(0)}%, regional groups ${(d.cohesion.regions[last] * 100).toFixed(0)}%` + (dem != null && aut != null ? `, democracies ${(dem * 100).toFixed(0)}% and autocracies ${(aut * 100).toFixed(0)}%` : "") + ` in ${d.years[last]}.`);
 }
 
 function renderLensMethods(d) {
@@ -3817,8 +3833,102 @@ function renderLensMethods(d) {
     alliance_camps: "Alliance camps",
     tiers: "Income tiers",
     feminist_cohort: "Feminist-policy cohort",
+    regimes: "Regime type",
+    representation: "Women in parliament",
+    defence_pacts: "Defence pacts",
+    link: "Link",
   };
   const dl = Object.entries(d.definitions).map(([k, v]) => `<dt>${storyEscape(names[k] || k)}</dt><dd>${storyEscape(v)}</dd>`).join("");
   const ul = d.caveats.map((c) => `<li>${storyEscape(c)}</li>`).join("");
-  host.innerHTML = `<div class="methods"><dl>${dl}</dl><ul>${ul}</ul></div>`;
+  const sources = (d.sources || []).map((s) => `<li><b>${storyEscape(s.label)}</b> — ${storyEscape(s.detail)}</li>`).join("");
+  host.innerHTML = `<div class="methods"><dl>${dl}</dl><ul>${ul}</ul>` + (sources ? `<p class="methods__sources-title">Sources</p><ul class="methods__sources">${sources}</ul>` : "") + `</div>`;
+}
+
+
+function renderLensCharacter(d) {
+  const host = storyEl("lensCharacter", "chart");
+  clearNode(host);
+  const k = d.character || {};
+  const line = (key, name, color, dash, axis) => ({
+    type: "scatter", mode: "lines", name, connectgaps: false, yaxis: axis || "y",
+    x: d.years, y: (k[key] || []).map((v) => (v == null ? null : (key === "women_in_parliament_mean" ? v : v * 100))),
+    line: { color, width: 2.2, dash: dash || "solid" },
+    hovertemplate: `${name}: %{y:.0f}%<extra></extra>`,
+  });
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  Plotly.newPlot(host, [
+    line("democracy_share", "Members that are democracies", "#0072b2"),
+    line("liberal_democracy_share", "Members that are liberal democracies", "#0072b2", "dot"),
+    line("in_defence_pact_share", "Members in a defence pact (to 2012)", "#0b2238", "dash"),
+    line("women_in_parliament_mean", "Average share of women in parliaments", "#cc79a7"),
+    ev.trace,
+  ], storyLayout({
+    shapes: ev.shapes,
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Share of voting members / of seats", ticksuffix: "%", range: [0, 100] },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 84 },
+  }), PLOT_CONFIG);
+  const last = lensAnchorIndex(d);
+  const firstIdx = (key) => (k[key] || []).findIndex((v) => v != null);
+  const dem0 = firstIdx("democracy_share"), w0 = firstIdx("women_in_parliament_mean");
+  if (dem0 >= 0 && k.democracy_share[last] != null) {
+    const peakDem = d.years.reduce((best, y, i) => (k.democracy_share[i] != null && k.democracy_share[i] > best.v ? { y, v: k.democracy_share[i] } : best), { y: null, v: -1 });
+    setStoryText("lensCharacter", "finding", `Democracies were ${(k.democracy_share[dem0] * 100).toFixed(0)}% of the voting membership in ${d.years[dem0]}, peaked at ${(peakDem.v * 100).toFixed(0)}% in ${peakDem.y}, and are ${(k.democracy_share[last] * 100).toFixed(0)}% in ${d.years[last]}`);
+  }
+  if (w0 >= 0 && k.women_in_parliament_mean[last] != null) {
+    setStoryText("lensCharacter", "takeaway", `Women held ${k.women_in_parliament_mean[w0].toFixed(0)}% of seats in the average member's parliament in ${d.years[w0]} and ${k.women_in_parliament_mean[last].toFixed(0)}% in ${d.years[last]}; liberal democracies are ${(k.liberal_democracy_share[last] * 100).toFixed(0)}% of members.`);
+  }
+}
+
+function renderLensLinks(d) {
+  const host = storyEl("lensLinks", "chart");
+  clearNode(host);
+  const L = d.links || {};
+  const smooth = (series) => {
+    const out = [];
+    for (let i = 0; i < series.length; i += 1) {
+      const win = series.slice(Math.max(0, i - 2), i + 3).filter((v) => v != null);
+      out.push(win.length >= 3 ? win.reduce((a, b) => a + b, 0) / win.length : null);
+    }
+    return out;
+  };
+  const traces = [
+    { key: "democracy_rights", name: "Liberal-democracy score vs support on rights items", color: "#0072b2" },
+    { key: "representation_rights", name: "Women's share of parliament vs support on rights items", color: "#cc79a7" },
+  ].map((t) => ({
+    type: "scatter", mode: "lines", name: t.name, connectgaps: false,
+    x: d.years, y: smooth(L[t.key] || []),
+    customdata: (L[t.key] || []).map((v) => (v == null ? "–" : v.toFixed(2))),
+    line: { color: t.color, width: 2.2, shape: "spline", smoothing: 0.6 },
+    hovertemplate: `${t.name}: %{y:.2f} (this year alone %{customdata})<extra></extra>`,
+  }));
+  traces.push({
+    type: "scatter", mode: "markers", name: "Women's share vs support on gender items (single years)",
+    x: d.years, y: L.representation_gender || [],
+    marker: { color: "#cc79a7", size: 7, symbol: "diamond-open" },
+    hovertemplate: "gender items: %{y:.2f}<extra>%{x}</extra>",
+  });
+  const ev = eventShapes(d.years[0], d.years[d.years.length - 1]);
+  traces.push(ev.trace);
+  Plotly.newPlot(host, traces, storyLayout({
+    shapes: [...ev.shapes, { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { color: "#8a8a8a", width: 1 } }],
+    xaxis: { dtick: 10 },
+    yaxis: { title: "Rank correlation across members (5-year average)", range: [-1, 1], zeroline: false },
+    hovermode: "x unified",
+    legend: { y: -0.16, x: 0 },
+    margin: { b: 96 },
+  }), PLOT_CONFIG);
+  const last = lensAnchorIndex(d);
+  const lastKnown = (series) => { for (let i = last; i >= 0; i -= 1) if (series[i] != null) return { i, v: series[i] }; return null; };
+  const dem = lastKnown(L.democracy_rights || []), rep = lastKnown(L.representation_rights || []);
+  const word = (v) => (v > 0.1 ? "more often for" : v < -0.1 ? "less often for" : "neither more nor less often for");
+  if (dem && rep) {
+    const decade = decadeMeans(d.years, L.democracy_rights || []);
+    const decs = Object.keys(decade).sort();
+    const signs = decs.map((k2) => `${k2}s ${decade[k2] >= 0 ? "+" : ""}${decade[k2].toFixed(2)}`).join(", ");
+    setStoryText("lensLinks", "finding", `In ${d.years[dem.i]} freer states voted ${word(dem.v)} the rights resolutions that reached a vote (ρ ${dem.v >= 0 ? "+" : ""}${dem.v.toFixed(2)}); more gender-equal parliaments ${word(rep.v)} them (ρ ${rep.v >= 0 ? "+" : ""}${rep.v.toFixed(2)})`);
+    setStoryText("lensLinks", "takeaway", `Decade averages of the democracy link: ${signs}.`);
+  }
 }

@@ -54,6 +54,37 @@ def test_feminist_cohort_and_partition_labels():
         P.partition_labels(["USA"], 2016, "nope")
 
 
+def test_regime_and_representation_lookups():
+    assert P.regime_type("USA", 2020) == 3
+    assert P.regime_type("CHN", 2020) == 0
+    assert P.regime_type("SUN", 1980) == 0          # the USSR takes Russia's V-Dem series
+    assert P.regime_type("CSK", 1970) == 0
+    assert P.regime_type("GER", 1975) == 3 and P.regime_type("DDR", 1975) == 0
+    assert P.regime_type("XXX", 2000) is None
+    assert 0.6 < P.liberal_democracy_index("SWE", 2015) <= 1.0
+    assert P.women_in_parliament("RWA", 2015) > 50
+    assert 0 <= P.women_in_parliament("IND", 1960) < 10
+    assert P.partition_labels(["USA", "CHN", "IND", "SAU", "XXX"], 2015, "democracy") == {
+        "USA": P.DEMOCRACY, "CHN": P.AUTOCRACY, "IND": P.DEMOCRACY, "SAU": P.AUTOCRACY,
+    }
+    assert set(P.partition_labels(["USA", "CHN"], 2015, "regime").values()) == {"Liberal democracy", "Closed autocracy"}
+    terciles = P.partition_labels(["USA", "SWE", "RWA", "IND", "CHN", "SAU", "CUB", "BRA", "NGA", "JPN"], 2015, "representation")
+    assert terciles["RWA"] == P.REPRESENTATION_LABELS[2] and terciles["JPN"] == P.REPRESENTATION_LABELS[0]
+    assert P.partition_labels(["USA", "SWE"], 2015, "representation") == {}   # too few to split
+
+
+def test_defense_pact_communities_from_cow():
+    first, last = P.cow_years()
+    assert first == 1946 and last == 2012
+    assert P.defense_pact_community("POL", 1985) == P.defense_pact_community("HUN", 1985) != P.NO_PACT
+    assert P.defense_pact_community("USA", 1985) == P.defense_pact_community("GBR", 1985)
+    assert P.defense_pact_community("USA", 1985) != P.defense_pact_community("POL", 1985)
+    assert P.defense_pact_community("IND", 1985) == P.NO_PACT
+    assert P.defense_pact_community("USA", 2015) is None
+    labels = P.partition_labels(["USA", "POL", "IND"], 1985, "pact")
+    assert len(set(labels.values())) == 3
+
+
 # ── explained variance and cohesion ──────────────────────────────────────────
 
 
@@ -127,8 +158,16 @@ def test_lens_timeline_has_every_lens_and_era():
     assert out["cohesion"]["soviet_led"][0] == pytest.approx(1.0)
     assert out["agenda"]["gender"][1] == pytest.approx(0.5)
     assert out["eras"][0]["decade"] == 1980 and out["eras"][0]["top"] in L.LENSES
-    assert set(out["definitions"]) >= {"explained_variance", "index", "alliance_camps", "tiers"}
-    assert len(out["caveats"]) >= 3
+    assert set(out["definitions"]) >= {"explained_variance", "index", "alliance_camps", "tiers", "regimes", "representation", "defence_pacts", "link"}
+    assert len(out["caveats"]) >= 5 and len(out["sources"]) >= 4
+    # the supplementary partitions and series are present for every year
+    assert set(out["partitions"]) == {"alliance", "tier", "region", "ffp", "regime", "democracy", "pact", "representation"}
+    assert out["partitions"]["democracy"][0]["raw"] is not None       # USA/GBR/IND/BRA vs SUN/POL in 1985
+    assert set(out["cohesion"]) >= {"democracies", "autocracies", "pacts"}
+    assert set(out["links"]) == {"democracy_rights", "representation_rights", "representation_gender"}
+    assert set(out["character"]) == {"democracy_share", "liberal_democracy_share", "women_in_parliament_mean", "in_defence_pact_share"}
+    assert out["cow_years"] == [1946, 2012]
+    assert all(len(v) == 2 for v in out["character"].values())
 
 
 @pytest.fixture
@@ -152,3 +191,12 @@ def test_lenses_endpoint_reads_the_record(client):
     # the Soviet camp voted as one
     assert data["cohesion"]["soviet_led"][i] > 0.95
     assert {e["label"] for e in data["eras"]} >= {"1980s", "1990s", "2020s"}
+    # supplementary sources on the real record
+    j = years.index(1990)
+    assert data["partitions"]["regime"][j]["adjusted"] > 0.4          # regime type splits the 1990 vote
+    assert 0.3 <= data["character"]["democracy_share"][j] <= 0.45      # about a third of members democratic
+    k = years.index(2010)
+    assert data["character"]["democracy_share"][k] > 0.5
+    assert data["character"]["women_in_parliament_mean"][k] > 15
+    assert data["links"]["democracy_rights"][k] < 0                    # freer states vote less often for recorded rights items
+    assert data["partitions"]["pact"][k]["adjusted"] is not None and data["partitions"]["pact"][years.index(2015)]["adjusted"] is None

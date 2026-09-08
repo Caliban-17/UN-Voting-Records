@@ -16,6 +16,15 @@ UN voting, as year-aware lookups.
   an explicit feminist foreign policy, with the year they did.
 * **Regional groups** (constructivism's institutional identities) come from
   :mod:`src.regional_groups`.
+* **Regime type** (liberalism): V-Dem's Regimes of the World (closed
+  autocracy, electoral autocracy, electoral democracy, liberal democracy)
+  and its liberal democracy index, via Our World in Data.
+* **Women's representation** (feminist IR): the share of seats held by
+  women, IPU via the World Bank from 1997, V-Dem's series before that.
+* **Defence-pact communities** (realism, data-derived): connected components
+  of the Correlates of War defence-pact graph, to 2012 where the data end.
+
+All three are built by ``scripts/build_supplementary.py`` into ``data/``.
 
 Every list is curated from the public record and deliberately short; each
 is a proxy and is labelled as one in the UI. Change a year here, not in
@@ -33,9 +42,16 @@ from src.regional_groups import regional_group
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 INCOME_CSV = BASE_DIR / "data" / "world_bank_income_groups.csv"
+VDEM_CSV = BASE_DIR / "data" / "vdem_regimes.csv"
+WOMEN_CSV = BASE_DIR / "data" / "women_in_parliament.csv"
+COW_CSV = BASE_DIR / "data" / "cow_defense_communities.csv"
 
 US_LED, SOVIET_LED, NON_ALIGNED = "US-led", "Soviet/Russian-led", "Non-aligned"
 CORE, SEMI, PERIPHERY = "Core", "Semi-periphery", "Periphery"
+REGIME_LABELS = {0: "Closed autocracy", 1: "Electoral autocracy", 2: "Electoral democracy", 3: "Liberal democracy"}
+DEMOCRACY, AUTOCRACY = "Democracy", "Autocracy"
+NO_PACT = "No defence pact"
+REPRESENTATION_LABELS = ("Fewest women in parliament", "Middle third", "Most women in parliament")
 
 # (code, first year, last year or None) — membership of the US-led camp.
 NATO_AND_US_TREATY_ALLIES: list[tuple[str, int, Optional[int]]] = [
@@ -132,6 +148,84 @@ def world_system_tier(code: str, year: int) -> Optional[str]:
     return INCOME_TO_TIER[groups[earlier[-1]]] if earlier else None
 
 
+@lru_cache(maxsize=1)
+def _vdem_table() -> dict[str, dict[int, tuple[Optional[int], Optional[float]]]]:
+    table: dict[str, dict[int, tuple[Optional[int], Optional[float]]]] = {}
+    if not VDEM_CSV.exists():
+        return table
+    with VDEM_CSV.open(encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            regime = int(row["regime"]) if row["regime"] else None
+            libdem = float(row["libdem"]) if row["libdem"] else None
+            table.setdefault(row["code"], {})[int(row["year"])] = (regime, libdem)
+    return table
+
+
+def regime_type(code: str, year: int) -> Optional[int]:
+    """Regimes of the World category (0–3) for a member in a year, or None."""
+    return _vdem_table().get(str(code).strip().upper(), {}).get(year, (None, None))[0]
+
+
+def liberal_democracy_index(code: str, year: int) -> Optional[float]:
+    """V-Dem's liberal democracy index (0–1) for a member in a year, or None."""
+    return _vdem_table().get(str(code).strip().upper(), {}).get(year, (None, None))[1]
+
+
+@lru_cache(maxsize=1)
+def _women_table() -> dict[str, dict[int, float]]:
+    table: dict[str, dict[int, float]] = {}
+    if not WOMEN_CSV.exists():
+        return table
+    with WOMEN_CSV.open(encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            table.setdefault(row["code"], {})[int(row["year"])] = float(row["share"])
+    return table
+
+
+def women_in_parliament(code: str, year: int) -> Optional[float]:
+    """Share of parliamentary seats held by women (percent), or None."""
+    return _women_table().get(str(code).strip().upper(), {}).get(year)
+
+
+@lru_cache(maxsize=1)
+def _cow_table() -> dict[str, dict[int, str]]:
+    table: dict[str, dict[int, str]] = {}
+    if not COW_CSV.exists():
+        return table
+    with COW_CSV.open(encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            table.setdefault(row["code"], {})[int(row["year"])] = row["community"]
+    return table
+
+
+def cow_years() -> tuple[Optional[int], Optional[int]]:
+    """First and last year the defence-pact data cover."""
+    years = {y for groups in _cow_table().values() for y in groups}
+    return (min(years), max(years)) if years else (None, None)
+
+
+def defense_pact_community(code: str, year: int) -> Optional[str]:
+    """The defence-pact component a member sits in that year; ``NO_PACT``
+    when it has none; None outside the years the data cover."""
+    first, last = cow_years()
+    if first is None or not first <= year <= last:
+        return None
+    return _cow_table().get(str(code).strip().upper(), {}).get(year, NO_PACT)
+
+
+def representation_terciles(codes: list[str], year: int) -> dict[str, str]:
+    """Members split into thirds by women's share of parliament that year."""
+    shares = {c: women_in_parliament(c, year) for c in codes}
+    known = sorted((v, c) for c, v in shares.items() if v is not None)
+    if len(known) < 6:
+        return {}
+    third = len(known) // 3
+    out: dict[str, str] = {}
+    for i, (_, code) in enumerate(known):
+        out[code] = REPRESENTATION_LABELS[min(2, i // third)] if third else REPRESENTATION_LABELS[1]
+    return out
+
+
 def partition_labels(codes: list[str], year: int, scheme: str) -> dict[str, str]:
     """``{code: group}`` for one scheme and year; codes the scheme cannot
     place are left out."""
@@ -149,6 +243,20 @@ def partition_labels(codes: list[str], year: int, scheme: str) -> dict[str, str]
                 out[code] = group
         elif scheme == "ffp":
             out[code] = "Feminist foreign policy" if feminist_foreign_policy(code, year) else "Other members"
+        elif scheme == "regime":
+            regime = regime_type(code, year)
+            if regime is not None:
+                out[code] = REGIME_LABELS[regime]
+        elif scheme == "democracy":
+            regime = regime_type(code, year)
+            if regime is not None:
+                out[code] = DEMOCRACY if regime >= 2 else AUTOCRACY
+        elif scheme == "pact":
+            community = defense_pact_community(code, year)
+            if community is not None:
+                out[code] = community
+        elif scheme == "representation":
+            return representation_terciles(codes, year)
         else:
             raise ValueError(f"unknown scheme {scheme!r}")
     return out

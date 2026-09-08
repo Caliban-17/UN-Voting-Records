@@ -45,7 +45,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from src.lenses_partitions import CORE, PERIPHERY, SOVIET_LED, US_LED, partition_labels
+from src.lenses_partitions import (
+    AUTOCRACY, CORE, DEMOCRACY, NO_PACT, PERIPHERY, SOVIET_LED, US_LED, cow_years,
+    liberal_democracy_index, partition_labels, regime_type, women_in_parliament,
+)
 from src.story_analysis import (
     _complete_years, _side_matrix, division_by_year, last_full_year, resolutions_table,
 )
@@ -208,6 +211,24 @@ def _scale(values: list[Optional[float]]) -> list[Optional[float]]:
     return [None if v is None else round((v - lo) / (hi - lo), 4) for v in values]
 
 
+def _rank_link(matrix: pd.DataFrame, cols: list, indicator: dict[str, Optional[float]],
+               min_votes: int = 5, min_members: int = 30) -> Optional[float]:
+    """Spearman correlation between a per-member indicator and the member's
+    net support (+1 yes, −1 no, 0 otherwise) averaged over ``cols``."""
+    if len(cols) < min_votes:
+        return None
+    support = matrix[cols].mean(axis=1)
+    pairs = [(indicator[c], support[c]) for c in matrix.index if indicator.get(c) is not None]
+    if len(pairs) < min_members:
+        return None
+    x = pd.Series([a for a, _ in pairs])
+    y = pd.Series([b for _, b in pairs])
+    if x.nunique() < 3 or y.nunique() < 3:
+        return None
+    rho = x.corr(y, method="spearman")
+    return None if pd.isna(rho) else round(float(rho), 4)
+
+
 def _last_complete_year(res: pd.DataFrame, last_full: Optional[int]) -> Optional[int]:
     """The last year whose main session part is in the record: the record's
     final year counts only once it holds a December vote. Earlier years are
@@ -251,9 +272,11 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
     gender_mask = (res["issue"].fillna("") + " || " + res["subjects"].fillna("")).str.upper().str.contains(GENDER_PATTERN)
     res = res.assign(gender=gender_mask)
 
-    partitions = {"alliance": [], "tier": [], "region": [], "ffp": []}
-    home_turf = {"alliance": [], "tier": [], "region": []}
-    cohesion = {"us_led": [], "soviet_led": [], "core": [], "periphery": [], "regions": []}
+    partitions = {k: [] for k in ("alliance", "tier", "region", "ffp", "regime", "democracy", "pact", "representation")}
+    home_turf = {"alliance": [], "tier": [], "region": [], "democracy": []}
+    cohesion = {k: [] for k in ("us_led", "soviet_led", "core", "periphery", "regions", "democracies", "autocracies", "pacts")}
+    links = {"democracy_rights": [], "representation_rights": [], "representation_gender": []}
+    character = {k: [] for k in ("democracy_share", "liberal_democracy_share", "women_in_parliament_mean", "in_defence_pact_share")}
     agenda = {k: [] for k in ("security", "economic", "normative", "institutional", "decolonial", "gender")}
     gender_support = []
     ffp_cohesion = []
@@ -276,7 +299,8 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
         for scheme in partitions:
             partitions[scheme].append(adjusted_explained_variance(matrix, labels[scheme], permutations, seed=year))
         # each theory on its home ground
-        for scheme, themes in (("alliance", THEMES_BY_LENS["security"]), ("tier", THEMES_BY_LENS["economic"]), ("region", THEMES_BY_LENS["normative"])):
+        rights = THEMES_BY_LENS["normative"]
+        for scheme, themes in (("alliance", THEMES_BY_LENS["security"]), ("tier", THEMES_BY_LENS["economic"]), ("region", rights), ("democracy", rights)):
             cols = [c for c in _theme_columns(res, year, themes) if c in matrix.columns]
             if len(cols) >= 5:
                 home_turf[scheme].append(adjusted_explained_variance(matrix[cols], labels[scheme], permutations, seed=year))
@@ -293,6 +317,31 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
         cohesion["regions"].append(round(float(np.mean(region_vals)), 4) if region_vals else None)
         ffp_coh = group_cohesion(matrix, labels["ffp"])
         ffp_cohesion.append(ffp_coh.get("Feminist foreign policy"))
+        dem_coh = group_cohesion(matrix, labels["democracy"])
+        cohesion["democracies"].append(dem_coh.get(DEMOCRACY))
+        cohesion["autocracies"].append(dem_coh.get(AUTOCRACY))
+        pact_vals = [v for k, v in group_cohesion(matrix, labels["pact"]).items() if v is not None and k != NO_PACT]
+        cohesion["pacts"].append(round(float(np.mean(pact_vals)), 4) if pact_vals else None)
+
+        # Who sits in the room: the membership's own character that year.
+        regimes = {c: regime_type(c, year) for c in codes}
+        known = [r for r in regimes.values() if r is not None]
+        character["democracy_share"].append(round(sum(r >= 2 for r in known) / len(known), 4) if len(known) >= 20 else None)
+        character["liberal_democracy_share"].append(round(sum(r == 3 for r in known) / len(known), 4) if len(known) >= 20 else None)
+        shares = [women_in_parliament(c, year) for c in codes]
+        shares = [v for v in shares if v is not None]
+        character["women_in_parliament_mean"].append(round(float(np.mean(shares)), 2) if len(shares) >= 20 else None)
+        pact_labels = labels["pact"]
+        character["in_defence_pact_share"].append(
+            round(sum(v != NO_PACT for v in pact_labels.values()) / len(pact_labels), 4) if len(pact_labels) >= 20 else None
+        )
+
+        # Do freer states, and more gender-equal parliaments, vote differently on rights items?
+        rights_cols = [c for c in _theme_columns(res, year, rights) if c in matrix.columns]
+        gender_cols = [c for c in year_res[year_res["gender"]]["rcid"] if c in matrix.columns]
+        links["democracy_rights"].append(_rank_link(matrix, rights_cols, {c: liberal_democracy_index(c, year) for c in codes}))
+        links["representation_rights"].append(_rank_link(matrix, rights_cols, {c: women_in_parliament(c, year) for c in codes}))
+        links["representation_gender"].append(_rank_link(matrix, gender_cols, {c: women_in_parliament(c, year) for c in codes}, min_votes=1))
 
     agreement = [division.get(y, {}).get("agreement") for y in years]
     divided = [division.get(y, {}).get("divided_share") for y in years]
@@ -330,6 +379,9 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
             "agreement_across_members": agreement,
             "lopsided_votes_share": lopsided,
             "institution_building_agenda_share": agenda["institutional"],
+            "democracies_explain_votes": adj("democracy"),
+            "democracies_on_rights_items": adj_home("democracy"),
+            "democracy_cohesion": cohesion["democracies"],
         },
         "world_systems": {
             "income_tiers_explain_votes": adj("tier"),
@@ -348,6 +400,8 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
             "gender_vote_support": gender_support,
             "feminist_policy_bloc_cohesion": ffp_cohesion,
             "feminist_policy_bloc_explains_votes": adj("ffp"),
+            "representation_explains_votes": adj("representation"),
+            "representation_rights_link": links["representation_rights"],
         },
     }
     indices = {}
@@ -357,7 +411,8 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
     # No gender vote and no feminist-policy cohort in a year: nothing to read.
     ffp = components["feminism"]
     for i in range(len(years)):
-        if not agenda["gender"][i] and ffp["feminist_policy_bloc_cohesion"][i] is None:
+        if (not agenda["gender"][i] and ffp["feminist_policy_bloc_cohesion"][i] is None
+                and ffp["representation_explains_votes"][i] is None):
             indices["feminism"][i] = None
     indices_smoothed = {lens: _smooth(series) for lens, series in indices.items()}
     home_turf_smoothed = {k: _smooth([p["adjusted"] for p in v]) for k, v in home_turf.items()}
@@ -374,11 +429,15 @@ def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:
         "home_turf": home_turf,
         "home_turf_smoothed": home_turf_smoothed,
         "cohesion": cohesion,
+        "links": links,
+        "character": character,
+        "cow_years": list(cow_years()),
         "agenda": agenda,
         "cascades": cascades,
         "north_south_markers": markers,
         "eras": eras,
         "definitions": DEFINITIONS,
+        "sources": SOURCES,
         "caveats": CAVEATS,
     }
 
@@ -476,7 +535,37 @@ DEFINITIONS = {
         "Canada 2017, France and Luxembourg 2019, Mexico 2020, Spain 2021, Germany, Chile, the "
         "Netherlands, Colombia and Liberia 2022, Slovenia and Mongolia 2023)."
     ),
+    "regimes": (
+        "V-Dem's Regimes of the World: closed autocracy, electoral autocracy, electoral democracy, "
+        "liberal democracy. 'Democracies' are the last two. The liberal democracy index (0–1) is the "
+        "same project's continuous score. Predecessor states take their successor's series (the USSR "
+        "Russia's, Czechoslovakia Czechia's, Yugoslavia Serbia's)."
+    ),
+    "representation": (
+        "Share of seats in the national parliament held by women: the Inter-Parliamentary Union's "
+        "figures (via the World Bank) from 1997, V-Dem's series before that. Members are split into "
+        "thirds each year for the partition."
+    ),
+    "defence_pacts": (
+        "Correlates of War Formal Alliances v4.1: every pair of states bound by a defence pact in a "
+        "year forms an edge; modularity communities of that graph are the partition. The data end in "
+        "2012, so this reading stops there. It is the data-derived check on the curated alliance camps."
+    ),
+    "link": (
+        "Spearman rank correlation, across members, between an indicator (the liberal democracy index "
+        "or women's share of parliament) and the member's net support on the year's rights items "
+        "(+1 for yes, −1 for no, 0 otherwise, averaged). Positive: freer or more gender-equal states "
+        "vote more often for those resolutions; negative: less often."
+    ),
 }
+
+SOURCES = [
+    {"label": "UN General Assembly roll-call votes", "detail": "UN Digital Library and DGACM extracts, 1946–present."},
+    {"label": "World Bank historical income classification", "detail": "OGHIST, fiscal years 1987–2023, CC BY 4.0."},
+    {"label": "V-Dem regimes and liberal democracy index", "detail": "Varieties of Democracy v15 via Our World in Data, 1789–2025, CC BY 4.0."},
+    {"label": "Women in parliament", "detail": "Inter-Parliamentary Union via the World Bank (SG.GEN.PARL.ZS, 1997–2025) and V-Dem via Our World in Data (1900–2025)."},
+    {"label": "Correlates of War Formal Alliances v4.1", "detail": "Gibler (2009), dyad-year defence pacts, 1816–2012."},
+]
 
 CAVEATS = [
     "Recorded votes only: resolutions adopted by consensus, including most gender-equality texts, never appear, so the feminist and liberal readings are measured on the contested end of the record.",
@@ -484,4 +573,6 @@ CAVEATS = [
     "Lenses are not rivals in the data: two can score high in the same year. The timeline shows whose fingerprint is strongest when, not which theory is right.",
     "The feminist index has thin evidence before 2014, when the first feminist foreign policy was declared, and rests on a handful of recorded gender votes per decade; years with neither are left blank.",
     "The current year is left out until its main session part, September to December, is in the record.",
+    "Regime type and women's representation are missing for a dozen microstates and for some states in years without a legislature; those members simply sit outside that partition for the year.",
+    "The Correlates of War alliance data stop in 2012; the defence-pact reading is a check on the curated camps for the years both cover, not a replacement after it.",
 ]
