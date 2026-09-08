@@ -1,8 +1,12 @@
 name: Refresh UN voting data
 
-# Weekly pull of new UN General Assembly voting records via UN Digital
-# Library's MARC-XML API (no Playwright, no Chromium — runs cleanly on
-# the free GH runner in ~2 minutes per refresh).
+# Weekly pull of new UN General Assembly voting records from DGACM's
+# machine-readable resolutions on GitHub (github.com/UNxml/GAresolutions).
+# The Digital Library's MARC search has been behind an AWS WAF bot
+# challenge since September 2026 (and robots.txt disallows it), so that
+# route is opt-in only (`--source marc`). The GitHub extracts are uploaded
+# in batches, weeks to months behind the plenary; a refresh that finds no
+# new rows is normal and cuts no release.
 #
 # Schedule sits 11 hours before the Tuesday 09:00 UTC publish slot so
 # there is time to manually intervene if the refresh produces something
@@ -84,8 +88,12 @@ jobs:
           fi
           echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
 
-      - name: Run MARC-XML refresh (always promote in CI)
+      - name: Refresh from DGACM's GitHub extracts (always promote in CI)
         if: ${{ hashFiles('data/*.csv') != '' }}
+        env:
+          # Authenticated GitHub API calls: the extract listing would otherwise
+          # share the runner's anonymous rate limit.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python scripts/refresh_data.py --days "${{ inputs.days || '14' }}" --promote
 
       # ── Auto-release the refreshed CSV if it actually changed ──────────────

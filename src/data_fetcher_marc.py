@@ -55,6 +55,20 @@ _SUB_COUNTRY_NAME = "e"
 # NOT override the User-Agent header; transparent automation is the
 # correct posture here anyway. We still pad with a polite request delay.
 DEFAULT_HEADERS: dict[str, str] = {}
+
+
+class BotChallengeError(RuntimeError):
+    """The library answered with a WAF bot challenge instead of data."""
+
+
+def _is_bot_wall(resp) -> bool:
+    """True when a response is a WAF challenge/block rather than data."""
+    action = (resp.headers.get("x-amzn-waf-action") or "").lower()
+    if action in ("challenge", "captcha", "block"):
+        return True
+    return resp.status_code == 403 and "awselb" in (resp.headers.get("server") or "").lower()
+
+
 REQUEST_DELAY_SECONDS = 1.5
 MAX_RETRIES_PER_PAGE = 4
 RETRY_BACKOFF_SECONDS = 2.0
@@ -207,6 +221,18 @@ def fetch_records_page(
         if resp.status_code == 200 and resp.text.strip():
             text = resp.text
             break
+        if _is_bot_wall(resp):
+            # Since September 2026 the library fronts every page with an AWS
+            # WAF bot challenge: non-browser clients get 202 with an empty body
+            # (or 403 for automation signatures). No retry will pass it, and
+            # robots.txt disallows /search anyway — say so and stop.
+            raise BotChallengeError(
+                "UN Digital Library is answering with a bot challenge "
+                f"(HTTP {resp.status_code}, x-amzn-waf-action="
+                f"{resp.headers.get('x-amzn-waf-action') or 'n/a'}). The MARC search "
+                "export is closed to non-browser clients; use the library's "
+                "authenticated API instead (see README, 'Keeping data fresh')."
+            )
         if resp.status_code in (202, 429, 503):
             wait = RETRY_BACKOFF_SECONDS * (2 ** attempt)
             logger.info("UN DL %s at jrec=%s; retry in %ss", resp.status_code, jrec, wait)

@@ -302,18 +302,36 @@ python scripts/refresh_data.py --dry-run
 python scripts/refresh_data.py --promote
 ```
 
-**How it works:** the fetcher uses UN Digital Library's MARC-XML API
-(`?of=xm` on the search endpoint). Each search response includes the
-full voting data for 50 records, so backfilling 9 months takes ~10
-minutes via plain HTTP. No Playwright, no Chromium, no browser.
+**Where the votes come from (since September 2026):** the UN Digital Library
+now fronts every page with an AWS WAF bot challenge (`x-amzn-waf-action:
+challenge`), and its robots.txt has always disallowed `/search`, so the
+old MARC-XML route is closed to scripts and kept only as `--source marc`.
+The refresh reads the Department for General Assembly and Conference
+Management's machine-readable resolutions instead —
+[github.com/UNxml/GAresolutions](https://github.com/UNxml/GAresolutions),
+whose `data_extract/*.json` files list, for every resolution adopted by
+recorded vote, the members in favour, against and abstaining, with tallies,
+dates, meetings and UNBIS subjects. Three things to know:
 
-**Schema-aware merge:** the new rows use the historical
-`undl_id/ms_code/ms_vote` columns plus the modern `rcid/country_code/vote`
-aliases. The dedup key is `(undl_id, ms_code)`, which is populated in
-both sources. There is a hard safety gate that **refuses to overwrite the
-source if the merged frame is smaller than the input** — this is the
-bug that destroyed 880k rows in an earlier draft, now caught by 4
-regression tests.
+- It is unofficial ("for informational purposes only") and requires
+  attribution to the United Nations; this project attributes it in the
+  `source` column and here.
+- DGACM uploads in batches, weeks to months behind the plenary, so a
+  refresh that finds nothing new is normal and cuts no release. Weekly
+  currency in season would need the library's authenticated API
+  (`/api/v1`, which refuses guests); ask the Dag Hammarskjöld Library for
+  access if that matters.
+- The extract has no record ids, so new rows carry a synthetic
+  `undl_id` (2 000 000 000 + CRC32 of the symbol) and member names are
+  mapped to ISO-3 through the dataset's own names plus an alias table
+  (`NAME_ALIASES` in `src/data_fetcher_github.py`); an unmapped name fails
+  the refresh loudly rather than dropping votes. If the library's record
+  for the same resolution ever arrives, it supersedes the synthetic row.
+
+**Schema-aware merge:** the dedup key is `(undl_id, ms_code)`, populated in
+both sources, and a hard safety gate **refuses to overwrite the source if
+the merged frame is smaller than the input** — the bug that destroyed 880k
+rows in an earlier draft, now caught by regression tests.
 
 **Refresh in CI:** [.github/workflows/refresh-data.yml](.github/workflows/refresh-data.yml) runs every Monday 22:00 UTC. It downloads the newest `data-*` GitHub Release (resolved by publish date — never by `createdAt`, which GitHub sets to the *commit* date, so weekly releases from an unchanged `main` all tie), pulls new votes via MARC-XML, and, if rows changed, publishes a new `data-YYYY-MM-DD` release carrying the full CSV. It keeps the newest four data releases and deletes older ones. The publish workflow reads the same newest release.
 

@@ -20,10 +20,11 @@ Usage
 How it works
 ------------
 1. Reads the current CSV at ``UN_VOTING_DATA_PATH``.
-2. Pulls UN Digital Library voting records via the MARC-XML API — no
-   Playwright / Chromium / browser overhead. Walks back paged search
-   results until it hits a record older than the CSV's latest date.
-   See ``src/data_fetcher_marc.py``.
+2. Pulls new recorded votes from DGACM's machine-readable resolutions on
+   GitHub (``src/data_fetcher_github.py``) — the sanctioned, script-readable
+   source since the Digital Library put a bot challenge in front of its
+   MARC search (September 2026). ``--source marc`` keeps the old route for
+   the day the library offers API access again.
 3. Merges new rows into the existing CSV using a column-aware dedup
    (handles both the legacy ``undl_id/ms_code`` schema and the fetcher's
    ``rcid/country_code`` — see the regression tests in
@@ -59,6 +60,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from src.config import UN_VOTES_CSV_PATH  # noqa: E402
 from src.data_fetcher import UNVotingDataFetcher  # noqa: E402  (for merge logic)
+from src.data_fetcher_github import (  # noqa: E402
+    drop_superseded_synthetic_rows,
+    fetch_recent_votes as fetch_recent_votes_github,
+)
 from src.data_fetcher_marc import fetch_recent_votes  # noqa: E402
 
 logging.basicConfig(
@@ -92,6 +97,7 @@ def _run(
     dry_run: bool,
     output: Path | None,
     promote: bool = False,
+    source: str = "github",
 ) -> int:
     """Refresh logic.
 
@@ -116,13 +122,19 @@ def _run(
         since_latest_days = days
     start = end - timedelta(days=since_latest_days)
 
-    # MARC XML fetcher — pulls structured records from UN DL.
     cutoff_date = start.strftime("%Y-%m-%d")
-    logger.info(
-        "Fetching UN DL records since %s (%d-day window via MARC XML).",
-        cutoff_date, since_latest_days,
-    )
-    new_df = fetch_recent_votes(since_date=cutoff_date)
+    if source == "marc":
+        logger.info(
+            "Fetching UN DL records since %s (%d-day window via MARC XML).",
+            cutoff_date, since_latest_days,
+        )
+        new_df = fetch_recent_votes(since_date=cutoff_date)
+    else:
+        logger.info(
+            "Fetching recorded votes since %s from DGACM's GitHub extracts.",
+            cutoff_date,
+        )
+        new_df = fetch_recent_votes_github(since_date=cutoff_date, existing_df=existing)
     if new_df.empty:
         logger.info("No new records returned. Nothing to do.")
         return 0
@@ -136,6 +148,9 @@ def _run(
         if not existing.empty
         else new_df
     )
+    # A synthetic-id row (GitHub source) must yield to the library's own
+    # record for the same resolution and member whenever both are present.
+    merged = drop_superseded_synthetic_rows(merged)
     delta = len(merged) - len(existing)
     logger.info("Merged dataset has %d rows (Δ %+d).", len(merged), delta)
 
@@ -234,6 +249,11 @@ def _run(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--days", type=int, default=30, help="Window of days back to fetch (default: 30)")
+    parser.add_argument(
+        "--source", choices=("github", "marc"), default="github",
+        help="github: DGACM's resolution extracts (default). marc: the Digital Library's "
+             "MARC search, closed to scripts since September 2026.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Fetch and merge but do not write")
     parser.add_argument("--output", type=Path, default=None, help="Override output CSV path")
     parser.add_argument(
@@ -245,7 +265,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        delta = _run(args.days, args.dry_run, args.output, args.promote)
+        delta = _run(args.days, args.dry_run, args.output, args.promote, source=args.source)
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130

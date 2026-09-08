@@ -66,7 +66,8 @@ src/                       Analysis + newsletter library (no Flask imports here)
   abstention_analysis.py   Abstention rates by country and topic
   sankey_analysis.py       Bloc-membership timeline
   model.py                 Random-forest vote predictor
-  data_fetcher_marc.py     UN DL MARC-XML fetcher (plain HTTP; used by scripts/refresh_data.py)
+  data_fetcher_github.py   Recorded votes from DGACM's GitHub extracts (the refresh source)
+  data_fetcher_marc.py     UN DL MARC-XML fetcher — behind a WAF bot challenge since 2026-09; opt-in
   data_fetcher.py          Older Playwright scraper; only its merge/dedup logic is still used
   cache_utils.py           LRUCache, cached_api decorator, model registry
   newsletter.py            Edition composer (NewsletterEdition, content_hash, pick_recent_year,
@@ -262,6 +263,11 @@ flake8 app src web_app.py scripts   # CI lint gate; keep it at zero
   `tests/test_story_analysis.py`.
 
 ## Gotchas
+
+- The Digital Library answers scripts with `x-amzn-waf-action: challenge` (HTTP
+  202, empty body; 403 for headless browsers). Do not build a challenge bypass:
+  robots.txt disallows `/search`. The refresh uses DGACM's GitHub extracts;
+  weekly in-season currency needs the library's authenticated API.
 
 - The app loads the whole CSV into memory per process; two Gunicorn workers
   mean two copies.

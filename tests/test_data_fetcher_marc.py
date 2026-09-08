@@ -156,3 +156,36 @@ def test_parser_falls_back_to_tag_650_when_991_missing():
     rec = ET.fromstring(xml).find("{http://www.loc.gov/MARC21/slim}record")
     rows = parse_marc_record(rec)
     assert rows[0]["subjects"] == "CLIMATE CHANGE"
+
+
+# ── the WAF bot challenge is reported, not retried ────────────────────────────
+
+
+class _FakeResponse:
+    def __init__(self, status, headers=None, text=""):
+        self.status_code = status
+        self.headers = headers or {}
+        self.text = text
+
+    def raise_for_status(self):
+        raise AssertionError("should not be reached")
+
+
+class _FakeSession:
+    def __init__(self, response):
+        self.response = response
+        self.headers = {}
+        self.calls = 0
+
+    def get(self, *args, **kwargs):
+        self.calls += 1
+        return self.response
+
+
+def test_fetch_records_page_names_the_bot_challenge_and_does_not_retry():
+    from src.data_fetcher_marc import BotChallengeError, fetch_records_page
+
+    session = _FakeSession(_FakeResponse(202, {"x-amzn-waf-action": "challenge", "server": "awselb/2.0"}))
+    with pytest.raises(BotChallengeError, match="bot challenge"):
+        fetch_records_page(1, 50, session=session)
+    assert session.calls == 1
