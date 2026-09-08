@@ -63,3 +63,6 @@ data/editions/
 .playwright-cli/
 debug/
 .github/atlas-out/
+
+# Ad-hoc review captures (the UI has moved on since they were taken)
+screenshots/
