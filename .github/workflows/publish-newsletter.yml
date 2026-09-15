@@ -108,13 +108,19 @@ jobs:
             -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
           if [ -n "$LATEST_TAG" ]; then
             echo "Using latest data release: $LATEST_TAG"
-            gh release download "$LATEST_TAG" --pattern "*.csv" --dir data --clobber
-            # No-op if the downloaded asset is already named correctly.
-            for f in data/*.csv; do
-              if [ "$f" != "data/2025_03_31_ga_voting_corr1.csv" ]; then
-                mv "$f" data/2025_03_31_ga_voting_corr1.csv
-              fi
-            done
+            # Download into a scratch dir, never straight into data/: data/ also
+            # holds committed lookup tables (vdem_regimes.csv, women_in_parliament.csv,
+            # ...), and the old `for f in data/*.csv` rename loop moved each of them
+            # over the voting CSV in turn, so the run ended up reading
+            # world_bank_income_groups.csv and dying on KeyError: 'date'.
+            DL_DIR="$(mktemp -d)"
+            gh release download "$LATEST_TAG" --pattern "*.csv" --dir "$DL_DIR" --clobber
+            N_CSV=$(find "$DL_DIR" -maxdepth 1 -name '*.csv' | wc -l | tr -d ' ')
+            if [ "$N_CSV" -ne 1 ]; then
+              echo "::error::Expected exactly one CSV asset in $LATEST_TAG, found $N_CSV."
+              exit 1
+            fi
+            mv "$DL_DIR"/*.csv data/2025_03_31_ga_voting_corr1.csv
           elif [ -n "$ATLAS_DATA_URL" ]; then
             echo "No data release yet; falling back to ATLAS_DATA_URL."
             curl -fSL "$ATLAS_DATA_URL" -o data/2025_03_31_ga_voting_corr1.csv
@@ -125,7 +131,7 @@ jobs:
           echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
 
       - name: Fail loudly if data is stale
-        if: ${{ hashFiles('data/*.csv') != '' }}
+        if: ${{ hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
         run: |
           python - <<'PY'
           import sys
@@ -141,7 +147,7 @@ jobs:
           PY
 
       - name: Compose edition
-        if: ${{ hashFiles('data/*.csv') != '' }}
+        if: ${{ hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
         env:
           RECENT_YEAR: ${{ inputs.recent_year }}
           BASELINE_WINDOW: ${{ inputs.baseline_window }}
