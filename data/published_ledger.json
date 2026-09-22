@@ -47,5 +47,56 @@
         "closer_china": 187
       }
     }
+  },
+  {
+    "slug": "2026-w39-arg-arg-wsm",
+    "edition_date": "2026-09-22",
+    "edition_number": 39,
+    "country_focus": "ARG",
+    "content_hash": "1fc888bdab5ead86164152cd110bab8598edccb5cdf1cd5beb06137f03130d3b",
+    "published_at": "2026-09-22T14:26:49Z",
+    "big_picture": {
+      "year": 2026,
+      "raw": {
+        "votes": 29,
+        "agreement": 0.96,
+        "us_agreement": 0.1,
+        "closer_china": 187
+      }
+    }
+  },
+  {
+    "slug": "2026-w39-isr-isr-ssd",
+    "edition_date": "2026-09-22",
+    "edition_number": 39,
+    "country_focus": "ISR",
+    "content_hash": "faffd6b8fba5f6d424c8e52372f1a286fa24e609b2cf5e638eefe8812a13c757",
+    "published_at": "2026-09-22T14:29:09Z",
+    "big_picture": {
+      "year": 2026,
+      "raw": {
+        "votes": 29,
+        "agreement": 0.96,
+        "us_agreement": 0.1,
+        "closer_china": 187
+      }
+    }
+  },
+  {
+    "slug": "2026-w39-chn-chn-fsm",
+    "edition_date": "2026-09-22",
+    "edition_number": 39,
+    "country_focus": "CHN",
+    "content_hash": "25634c6f77f3433b18b9da446034e4adbc6924c42798234ef9efddeb9d472367",
+    "published_at": "2026-09-22T14:30:46Z",
+    "big_picture": {
+      "year": 2026,
+      "raw": {
+        "votes": 29,
+        "agreement": 0.96,
+        "us_agreement": 0.1,
+        "closer_china": 187
+      }
+    }
   }
 ]
