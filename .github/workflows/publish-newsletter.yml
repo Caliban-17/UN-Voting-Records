@@ -355,7 +355,27 @@ jobs:
       - name: Record published edition + commit ledger
         if: ${{ inputs.dry_run != 'true' && steps.gate.outputs.skip != 'true' && hashFiles('.github/atlas-out/edition.json') != '' }}
         run: |
-          python - <<'PY'
+          set -e
+          SLUG=$(python -c "import json;print(json.load(open('.github/atlas-out/edition.json'))['slug'])")
+          git config user.name "atlas-bot"
+          git config user.email "atlas-bot@users.noreply.github.com"
+          # The edition has ALREADY been emailed by this point, so the ledger
+          # MUST land — if the push is lost, next week's gate forgets this send
+          # and re-mails the same edition (the bug this whole gate exists to
+          # prevent).
+          #
+          # Every job in this run checked out the same commit and the editions
+          # run one after another, so by the time a country edition gets here
+          # main already carries the ledger commits of the editions before it.
+          # Committing first and rebasing onto that conflicted every time
+          # (2026-09-22: ARG, ISR and CHN were emailed but never recorded).
+          # So: sync to the remote tip FIRST, then append this edition's
+          # record (idempotent), commit, push — and on a rejected push start
+          # the whole sequence over.
+          for attempt in 1 2 3; do
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --hard FETCH_HEAD
+            python - <<'PY'
           import json, sys
           sys.path.insert(0, ".")
           from src.newsletter_ledger import record_published_dict
@@ -365,27 +385,17 @@ jobs:
           rec = record_published_dict(edition_obj)
           print(f"Ledger record: {rec['slug']} hash={rec['content_hash'][:12]}…")
           PY
-          if git diff --quiet -- data/published_ledger.json; then
-            echo "Ledger unchanged (edition already recorded) — nothing to commit."
-            exit 0
-          fi
-          SLUG=$(python -c "import json;print(json.load(open('.github/atlas-out/edition.json'))['slug'])")
-          git config user.name "atlas-bot"
-          git config user.email "atlas-bot@users.noreply.github.com"
-          git add data/published_ledger.json
-          git commit -m "chore(ledger): record published edition ${SLUG}"
-          # The edition has ALREADY been emailed by this point, so the ledger
-          # MUST land — if the push is lost, next week's gate forgets this send
-          # and re-mails the same edition (the bug this whole gate exists to
-          # prevent). The concurrency group makes a racing push rare, not
-          # impossible, so rebase onto any concurrent change and retry before
-          # failing loudly.
-          for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && git push; then
+            if git diff --quiet -- data/published_ledger.json; then
+              echo "Ledger unchanged (edition already recorded) — nothing to commit."
+              exit 0
+            fi
+            git add data/published_ledger.json
+            git commit -m "chore(ledger): record published edition ${SLUG}"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
               echo "Ledger pushed on attempt ${attempt}."
               exit 0
             fi
-            echo "Push attempt ${attempt} failed (concurrent update?) — retrying in 5s."
+            echo "Push attempt ${attempt} rejected (concurrent update?) — re-syncing and retrying in 5s."
             sleep 5
           done
           echo "::error::Could not push ledger after 3 attempts; next run may re-send edition ${SLUG}."
@@ -448,7 +458,9 @@ jobs:
           PY
 
       - name: Upload edition as workflow artifact
-        if: ${{ hashFiles('.github/atlas-out/edition.json') != '' }}
+        # always(): keep the composed edition even when a later step failed,
+        # so a lost ledger push or a bounced email can be repaired from it.
+        if: ${{ always() && hashFiles('.github/atlas-out/edition.json') != '' }}
         uses: actions/upload-artifact@v7
         with:
           # Per-matrix-job name so country editions don't collide on upload.
