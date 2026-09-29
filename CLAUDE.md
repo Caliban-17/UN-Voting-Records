@@ -6,6 +6,22 @@ this file.
 
 ## What this is
 
+The default home page is now an **automatically published political research briefing**
+(`/` and `/briefing`), with separate sections on the world and the UN as an institution.
+The primary newsletter is at `/newsletter`, automatically formatted and archived by
+`src/newsletter_publisher.py` using `src/newsletter_live.py`. Faster official GA decisions
+come from `src/un_decisions.py`, separate from complete country roll calls; never infer
+country votes from aggregate tallies. The worker also refreshes complete roll calls daily.
+The existing interactive atlas is at `/atlas`. Quantitative findings come from
+`src/research_brief.py`; source-attributed current context comes from `src/pulse.py`.
+`src/pulse_worker.py` refreshes without a visitor and detects changed voting CSVs.
+`app/routes/pulse.py` serves the formatted publication, JSON, stable research-edition
+RSS and a separate source-update RSS. See `docs/AUTOMATED_RESEARCH.md` for scope,
+seasonal comparison rules and failure behaviour. `publish-research.yml` replaces
+scheduled manual Substack preparation with automatic downloadable GitHub Releases;
+`publish-newsletter.yml` is now manual-dispatch only. Do not restore an editorial
+approval gate: the user requires end-to-end automation.
+
 Two products on one dataset of UN General Assembly roll-call votes
 (1946 → present, ~950k rows from the UN Digital Library):
 

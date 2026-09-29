@@ -244,7 +244,7 @@ def _asset_version() -> str:
     return _asset_cache["version"]
 
 
-@bp.route("/")
+@bp.route("/atlas")
 def index():
     return render_template("index.html", asset_v=_asset_version())
 
@@ -567,11 +567,14 @@ def newsletter_weekly():
         if country_focus:
             country_focus = normalize_country_code(country_focus)
 
+        from src.newsletter_publisher import cached_affairs
+
         edition = build_newsletter_edition(
             get_df(),
             recent_year=recent_year,
             baseline_window_years=baseline_window,
             watched_topics=watched,
+            live_updates=cached_affairs() if not (args.get("year") or args.get("recent_year") or args.get("edition_date") or args.get("topics") or args.get("baseline_window") or country_focus) else None,
             name_lookup=country_names(),
             country_focus=country_focus,
             edition_date=edition_date,
@@ -665,11 +668,14 @@ def newsletter_archive_save():
         if country_focus:
             country_focus = normalize_country_code(country_focus)
 
+        from src.newsletter_publisher import cached_affairs
+
         edition = build_newsletter_edition(
             get_df(),
             recent_year=recent_year,
             baseline_window_years=baseline_window,
             watched_topics=watched,
+            live_updates=cached_affairs() if not (args.get("year") or args.get("recent_year") or args.get("edition_date") or args.get("topics") or args.get("baseline_window") or country_focus) else None,
             name_lookup=country_names(),
             country_focus=country_focus,
         )

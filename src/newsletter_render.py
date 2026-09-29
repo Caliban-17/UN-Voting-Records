@@ -88,6 +88,9 @@ def _country_glossary(edition) -> list:
 
 
 def render_markdown(edition: NewsletterEdition) -> str:
+    if edition.current_affairs and not edition.country_focus:
+        from src.newsletter_live import render_live
+        return render_live(edition, "md")
     lines: list[str] = []
     lookup = _edition_lookup(edition)
     lines.append(
@@ -333,6 +336,9 @@ def _wrap_para(text: str, width: int = 78) -> str:
 def render_text(edition: NewsletterEdition) -> str:
     """Plain-text version of the edition. Designed for the text/plain MIME
     fallback in multipart email — and also for piping into a terminal."""
+    if edition.current_affairs and not edition.country_focus:
+        from src.newsletter_live import render_live
+        return render_live(edition, "txt")
     lines: list[str] = []
     lookup = _edition_lookup(edition)
 
@@ -716,6 +722,9 @@ def _stat_row_html(stats: Iterable[StatHighlight]) -> str:
 
 
 def render_html(edition: NewsletterEdition) -> str:
+    if edition.current_affairs and not edition.country_focus:
+        from src.newsletter_live import render_live
+        return render_live(edition, "html")
     o: list[str] = []
     lookup = _edition_lookup(edition)
     o.append('<!doctype html><html lang="en"><head><meta charset="utf-8">')
@@ -730,24 +739,6 @@ def render_html(edition: NewsletterEdition) -> str:
     o.append('</head>')
     o.append(f'<body style="{_S["wrap"]}">')
     o.append(f'<div style="{_S["container"]}">')
-
-    # Editor-only "how to publish" callout. The wrapper is marked with
-    # ``data-editor-only`` so it can be easily stripped by a Substack post-
-    # ingest filter (or by hand). The user sees it on Tuesday morning in
-    # Gmail; subscribers never see it because we only ship to subscribers
-    # when the user pastes the Markdown into Substack and hits Publish.
-    o.append(
-        '<div data-editor-only="true" style="'
-        'background:#fff8ea;border:1px solid #e0c07a;border-radius:8px;'
-        'padding:10px 14px;margin-bottom:18px;font-size:13px;'
-        'color:#7a5a10;font-family:-apple-system,BlinkMacSystemFont,Arial,sans-serif;">'
-        '<strong>📰 To publish this week:</strong> '
-        'open Substack → Create → New post → paste the Markdown attached to '
-        'this email (or copy the rendered version below). Eyeball the headline '
-        'and lead story, then hit <strong>Publish</strong>. '
-        '<em>Subscribers only see it after you click Publish.</em>'
-        '</div>'
-    )
 
     # Masthead — nameplate first, so the publication reads as a publication.
     o.append(f'<div style="{_S["nameplate"]}">{_esc(edition.publication)}</div>')

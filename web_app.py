@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 # regardless of how the process is started (dev server or Gunicorn).
 app = create_app()
 
+# Current-context collection starts immediately, even if the historical CSV is
+# unavailable or still loading. The worker retries research once data is ready.
+from src.pulse_worker import start_worker  # noqa: E402
+
+start_worker(get_df, load_data)
+
 if not load_data():
     logger.critical(
         "startup: data loading failed — check %s",

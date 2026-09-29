@@ -225,6 +225,11 @@ def extract_to_rows(
             "total_no": _count(entry, "MS_against_count", len(lists["N"])),
             "total_abstentions": _count(entry, "MS_abstaining_count", len(lists["A"])),
         }
+        for letter, count_key in (("Y", "total_yes"), ("N", "total_no"), ("A", "total_abstentions")):
+            if not isinstance(lists[letter], list) or len(lists[letter]) != totals[count_key]:
+                raise ValueError(f"Incomplete roll call for {symbol}: {letter} names do not match published tally")
+        if not 0 < sum(totals.values()) <= 193:
+            raise ValueError(f"Invalid recorded-vote total for {symbol}")
         subjects = "|".join(
             str(term).strip()
             for pair in (entry.get("subjects") or [])
@@ -255,6 +260,8 @@ def extract_to_rows(
                 if not code:
                     unmapped.add(str(name))
                     continue
+                if code in voted:
+                    raise ValueError(f"Duplicate country {code} in roll call for {symbol}")
                 voted[code] = (letter, str(name))
         base["total_non_voting"] = max(0, len(member_set - set(voted))) if member_set else None
         for code, (letter, name) in sorted(voted.items()):

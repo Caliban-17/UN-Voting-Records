@@ -57,6 +57,7 @@ docker-compose.override.yml
 
 # Newsletter archive — composed editions are reproducible; don't bloat the repo
 data/editions/
+data/pulse/
 
 # Local agent / scratch dirs
 .claude/

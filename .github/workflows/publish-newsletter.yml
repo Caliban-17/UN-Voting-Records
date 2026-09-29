@@ -1,14 +1,7 @@
 name: Publish Weekly Atlas to Substack
 
-# Composes the Weekly Atlas newsletter on a schedule and emails it to your
-# Substack publication inbox (publish@<yourpub>.substack.com), where Substack
-# converts the inbound email into a draft post you can review and publish.
-#
-# Schedule reasoning (see README "Publishing schedule"):
-#   • Mon 22:00 UTC — pull the latest UN votes (refresh-data.yml)
-#   • Tue 09:00 UTC — compose + email to Substack inbox
-# Tuesday morning hits UK 09:00, EU 10:00–11:00, US East overnight, Tokyo evening
-# — the highest-open window for a global IR/diplomacy audience.
+# Legacy manual export/email workflow. The automatic current newsletter is
+# publish-research.yml; it needs no Substack editing or manual publish step.
 
 on:
   workflow_dispatch:
@@ -30,9 +23,8 @@ on:
       recipient_override:
         description: "Send to this address instead of the Substack inbox (use to test pipeline against your own Gmail)"
         required: false
-  schedule:
-    # Tuesday 09:00 UTC — see README "Publishing schedule".
-    - cron: "0 9 * * 2"
+  # Legacy editor-in-the-loop email is now manual only. The unattended
+  # publication is publish-research.yml and the app's /newsletter endpoint.
 
 concurrency:
   group: publish-newsletter

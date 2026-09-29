@@ -269,6 +269,9 @@ def main() -> int:
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130
+    if delta < 0:
+        logger.error("Refresh was refused by a data-integrity safeguard.")
+        return 1
     if delta == 0:
         return 0
     logger.info("Done — %+d net rows.", delta)

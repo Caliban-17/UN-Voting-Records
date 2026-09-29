@@ -1,0 +1,76 @@
+name: Publish current UN newsletter
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Refresh UN voting data"]
+    types: [completed]
+
+concurrency:
+  group: publish-current-newsletter
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore published state and newest voting data
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p data/pulse
+          if gh release view newsletter-current >/dev/null 2>&1; then
+            gh release download newsletter-current --pattern latest.json --pattern research.json --pattern decisions.json --pattern newsletter.json --dir data/pulse --clobber
+          fi
+          LATEST_TAG=$(gh release list --limit 100 --json tagName,publishedAt -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
+          test -n "$LATEST_TAG" && test "$LATEST_TAG" != "null"
+          mkdir -p /tmp/un-votes
+          gh release download "$LATEST_TAG" --pattern '*.csv' --dir /tmp/un-votes
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          sources = list(Path('/tmp/un-votes').glob('*.csv'))
+          if len(sources) != 1:
+              raise SystemExit('Expected exactly one voting CSV in the data release')
+          shutil.copyfile(sources[0], 'data/2025_03_31_ga_voting_corr1.csv')
+          PY
+      - name: Collect, analyse, format and publish locally
+        run: python scripts/refresh_pulse.py --require-research
+      - name: Publish downloadable edition automatically
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          HASH=$(python -c "import json; print(json.load(open('data/pulse/newsletter.json'))['content_hash'][:16])")
+          TAG="newsletter-$HASH"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" data/pulse/newsletter.json data/pulse/newsletter.html data/pulse/newsletter.md data/pulse/newsletter.txt \
+              --title "UN-Scrupulous newsletter — $HASH" \
+              --notes "Automatically composed UN newsletter. Open newsletter.html for the formatted edition; Markdown, plain text and canonical JSON are also included. Every edition distinguishes official decision coverage from country-level voting coverage." --latest=false
+          fi
+          if ! gh release view newsletter-current >/dev/null 2>&1; then
+            gh release create newsletter-current --title 'UN-Scrupulous — current newsletter' \
+              --notes 'Automatically refreshed newsletter with official UN decisions, current reporting and dated political research. Download newsletter.html to read. Changed editions are archived separately.' --latest=false
+          fi
+          gh release upload newsletter-current data/pulse/latest.json data/pulse/research.json data/pulse/decisions.json data/pulse/newsletter.json data/pulse/newsletter.html data/pulse/newsletter.md data/pulse/newsletter.txt --clobber
+      - name: Retain diagnostic output if a source failed
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: automated-research-publication
+          path: data/pulse/
+          retention-days: 14

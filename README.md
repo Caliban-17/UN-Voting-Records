@@ -1,4 +1,44 @@
-# UN Alignment Atlas
+# UN-Scrupulous — the automated UN newsletter
+
+The newsletter at `/newsletter` combines current official reporting, new GA decisions,
+and reproducible research answering two questions:
+**what does UN voting reveal about the world, and what does it reveal about the UN as an institution?**
+The interactive voting atlas remains at `/atlas`.
+
+- `/newsletter`: the latest automatically composed, formatted newsletter.
+- `/newsletter/feed.xml`: subscribe to changed newsletter editions via RSS.
+- `/api/decisions`: official GA outcomes and per-register collection status.
+- `/` and `/briefing`: research findings first; attributed current reporting second.
+- `/briefing/research.xml`: subscribe to changed research editions, with stable identifiers.
+- `/briefing/feed.xml`: separate feed of official source updates.
+- `/api/research-brief`: findings, denominators, methods, comparison periods and coverage.
+- `/api/pulse`: source status and searchable context (`topic`, `issue`, `q`).
+
+`python web_app.py` starts unattended collection every 30 minutes. Findings are calculated
+from the loaded voting dataset and published without an editor or a paid model. Unchanged
+research retains its original publication date. The source layer reads the public GA resolutions registers plus UN News, UN Meetings
+Coverage, UN Geneva and WHO RSS; it does not claim comprehensive coverage of every UN body.
+
+For publication without a running app, `.github/workflows/publish-research.yml` collects,
+calculates and exports a self-contained HTML edition every six hours and after a successful
+voting-data refresh. It publishes a `newsletter-current` GitHub Release and immutable
+`newsletter-<hash>` releases with HTML, Markdown, text and JSON editions. This workflow becomes active once present
+on the repository's default branch with Actions enabled. It uses the existing voting-data
+releases and GitHub's built-in token, with no email or manual publishing step. The old
+Substack preparation workflow is retained for manual dispatch only; historical documentation
+below describing its scheduled emails no longer describes the default publishing path.
+
+The faster GA register provides aggregate outcomes independently of the slower complete
+country roll calls. The newsletter shows both coverage dates and never invents country
+positions from aggregate totals. The full voting-data workflow checks daily at 04:00 UTC.
+
+Run `python scripts/refresh_pulse.py --require-research` for a complete collection, analysis
+and publication pass. Output lives in `data/pulse/` (gitignored). See
+[automated research methods and operations](docs/AUTOMATED_RESEARCH.md).
+
+---
+
+## UN Alignment Atlas
 
 > **Who does this country vote with at the UN, and how has that shifted?**
 

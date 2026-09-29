@@ -216,6 +216,7 @@ class NewsletterEdition:
     # partition (src.lenses, src.lenses_scorecard). Whole-record context,
     # so outside content_hash and optional in old archives.
     lenses: dict = field(default_factory=dict)
+    current_affairs: dict = field(default_factory=dict)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────
@@ -888,6 +889,7 @@ def build_newsletter_edition(
     name_lookup: Optional[dict[str, str]] = None,
     edition_date: Optional[str] = None,
     country_focus: Optional[str] = None,
+    live_updates: Optional[dict] = None,
 ) -> NewsletterEdition:
     """Compose a full edition object. Caller renders with newsletter_render.
 
@@ -897,6 +899,9 @@ def build_newsletter_edition(
     sparse in-progress year (e.g. May 2026 having 1 resolution so far)
     and anchors the analysis on the most recent complete-enough year.
     """
+    if live_updates and not country_focus:
+        from src.newsletter_live import build_current_edition
+        return build_current_edition(live_updates, edition_date)
     if df is None or df.empty:
         raise ValueError("Data not loaded")
     if recent_year is None:
@@ -944,20 +949,20 @@ def build_newsletter_edition(
                 f"agreement to {_pct(lead['recent_agreement'])}.{on_topics} "
                 f"The pair shared {lead['n_baseline_votes']} votes in the baseline "
                 f"window and {lead['n_recent_votes']} in {recent_year}, so the "
-                f"sample is large enough for the shift to be meaningful rather "
-                f"than statistical noise."
+                f"difference describes the available voting record; changing agenda "
+                f"composition and attendance may also contribute."
             ),
             supporting_drifts=drifts[1:5],
         )
         lede = lede_subhead
     else:
-        headline = "A rare quiet session at the UN"
+        headline = "No qualifying alignment shift in the available record"
         lead_story = LeadStory(
             headline=headline,
-            body="Voting patterns held steady across the dataset this period — itself a story.",
+            body="No pair met the analysis thresholds in the available voting record.",
             supporting_drifts=[],
         )
-        lede = "Voting patterns at the UN General Assembly were unusually stable this period."
+        lede = "The available data does not establish a qualifying alignment shift this period."
 
     # ── Top movers ─────────────────────────────────────────────────────────
     top_movers = _compute_top_movers(
@@ -1095,7 +1100,7 @@ def build_newsletter_edition(
             f"{'divergence' if lead['delta'] < 0 else 'convergence'} dominates the period."
         )
     else:
-        subhead = "Voting patterns held steady — a rare period of UNGA stability."
+        subhead = "Coverage and sample thresholds limit what this edition can conclude."
 
     # Nut graf — why this matters, written in plain English by mood.
     n_div = sum(1 for d in drifts if d["delta"] < 0)
@@ -1130,8 +1135,8 @@ def build_newsletter_edition(
     lead_why = (
         f"A {abs(drifts[0]['delta']) * 100:.0f}-point swing between two "
         f"countries with {drifts[0]['n_baseline_votes']}+ shared votes "
-        f"is not random noise; it is foreign policy moving in real time."
-    ) if drifts else "No significant moves — but absence of motion can itself be news."
+        f"is a descriptive signal to investigate, not proof of a policy change."
+    ) if drifts else "No qualifying shift was identified; this does not establish political stability."
     movers_why = (
         "The Top Movers list is the diplomat's shortlist: countries whose "
         "aggregate alignment with the P5 has shifted the most. Their next "
@@ -1209,6 +1214,8 @@ def build_newsletter_edition(
         "name_lookup": name_lookup,
     }
 
+    current_affairs = live_updates or {}
+
     # Stable email subject — same headline becomes the same subject across
     # composer reruns, which is what makes idempotent auto-publish safe.
     if country_focus:
@@ -1268,9 +1275,18 @@ def build_newsletter_edition(
     # trigger one spurious re-send of an unchanged edition.
     if this_week.get("votes"):
         content_payload["this_week"] = sorted(int(v["rcid"]) for v in this_week["votes"])
+    if current_affairs:
+        # Poll times and health diagnostics must not manufacture a new edition.
+        content_payload["current_affairs"] = {
+            k: v for k, v in current_affairs.items()
+            if k not in ("checked_at", "sources", "window_start", "window_end")
+        }
     content_hash = _hashlib.sha256(
         _json.dumps(content_payload, sort_keys=True, default=str).encode()
     ).hexdigest()
+
+    if current_affairs:
+        edition_slug += "-" + content_hash[:12]
 
     return NewsletterEdition(
         publication=publication_label,
@@ -1287,7 +1303,7 @@ def build_newsletter_edition(
         # years before". That framing works whether the newsletter ships
         # mid-cycle or right after the session ends.
         period_label=(
-            f"The {recent_year} UN session vs the "
+            f"Available {recent_year} calendar-year votes vs the "
             f"{baseline_window['start']}–{baseline_window['end']} baseline"
         ),
         recent_year=int(recent_year),
@@ -1302,6 +1318,7 @@ def build_newsletter_edition(
         this_week=this_week,
         calendar=calendar,
         lenses=lenses,
+        current_affairs=current_affairs,
         lead_story=lead_story,
         lead_story_why_it_matters=lead_why,
         top_movers=top_movers,
@@ -1399,4 +1416,5 @@ def edition_from_dict(payload: dict) -> NewsletterEdition:
         this_week=payload.get("this_week") or {},
         calendar=payload.get("calendar") or {},
         lenses=payload.get("lenses") or {},
+        current_affairs=payload.get("current_affairs") or {},
     )

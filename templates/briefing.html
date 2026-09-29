@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Automated political research on the world and the United Nations, grounded in voting data and attributed official reporting.">
+  <title>UN-Scrupulous — The world and the institution</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/briefing.css">
+  <link rel="alternate" type="application/rss+xml" title="Research editions" href="/briefing/research.xml">
+</head>
+<body>
+<div class="research-shell">
+  <header class="research-masthead">
+    <a class="research-brand" href="/briefing">UN-Scrupulous<span>Political research, automatically published</span></a>
+    <nav aria-label="Publication"><a href="/newsletter">Read the newsletter</a><a href="/newsletter/feed.xml">Newsletter RSS</a><a href="#findings">Research</a><a href="#context">Current context</a><a href="/atlas">Explore the data ↗</a><a href="/briefing/research.xml">Subscribe via RSS</a></nav>
+  </header>
+  <main>
+    <section class="research-intro">
+      <p class="research-kicker">The world · The institution · The evidence</p>
+      <h1>What the record reveals.</h1>
+      <p>A political reading of the world through the United Nations—and of the United Nations within it. Findings drawn from data, with the evidence and limits in view.</p>
+      <div class="research-dateline">{% if research.status == 'ready' %}Research comparison: <strong>{{ research.period }}</strong> · Voting data through {{ research.data_through }} · Published {{ research.generated_at[:10] }}{% else %}Research will publish automatically when sufficient data is available.{% endif %}</div>
+      {% if research.data_age_days is defined and research.data_age_days is not none and research.data_age_days > 60 %}<p class="research-notice research-warning">The latest recorded vote in this dataset is {{ research.data_age_days }} days old. The findings below describe the stated historical period; current reporting is shown separately.</p>{% endif %}
+    </section>
+
+    <section id="findings" aria-labelledby="research-heading">
+      <div class="research-section-title"><h2 id="research-heading">The research briefing</h2><a href="/api/research-brief">Download the evidence as JSON ↗</a></div>
+      {% if research.coverage_note %}<p class="research-notice research-warning">{{ research.coverage_note }}</p>{% endif %}
+      {% if research.status != 'ready' %}<p class="research-notice">{{ research.message }}</p>{% endif %}
+      {% for section in ['The world through the voting record', 'The UN as an institution'] %}
+      {% set findings = research.findings | selectattr('section', 'equalto', section) | list %}
+      {% if findings %}<h3 class="research-group-title">{{ section }}</h3>
+      <div class="research-grid">
+        {% for item in findings %}
+        <article class="research-card" id="{{ item.id }}">
+          <p class="research-kicker">Finding {{ loop.index }} · {{ item.period }}</p>
+          <h3>{{ item.title }}</h3>
+          <p class="research-finding">{{ item.finding }}</p>
+          {% if 'recent_pct' in item.evidence %}
+          <div class="research-bars" aria-label="Agreement comparison">
+            <div><span>Baseline</span><meter min="0" max="100" value="{{ item.evidence.baseline_pct }}">{{ item.evidence.baseline_pct }}%</meter><strong>{{ item.evidence.baseline_pct }}%</strong></div>
+            <div><span>Recent</span><meter min="0" max="100" value="{{ item.evidence.recent_pct }}">{{ item.evidence.recent_pct }}%</meter><strong>{{ item.evidence.recent_pct }}%</strong></div>
+          </div>
+          {% endif %}
+          <p>{{ item.interpretation }}</p>
+          <details><summary>Evidence and limits</summary>
+            <p><strong>Method.</strong> {{ item.method }}</p>
+            <dl>{% for label, value in item.evidence.items() %}<div><dt>{{ label | replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+            <p class="research-caveat">{{ item.caveat }}</p>
+            <a href="/atlas#tab=story">Examine the voting record ↗</a>
+          </details>
+        </article>
+        {% endfor %}
+      </div>{% endif %}
+      {% endfor %}
+      {% if research.status == 'ready' %}
+      <aside class="research-methods"><strong>What this edition can establish.</strong> {{ research.scope }}
+        <details><summary>Data coverage by year</summary><ul>{% for row in research.coverage %}<li>{{ row.year }}: {{ row.resolutions }} recorded votes, {{ row.first_date }} to {{ row.last_date }}.</li>{% endfor %}</ul></details>
+        <p>Publication is triggered by changed findings or coverage. An unchanged edition keeps its original publication date. <a href="{{ research.source_url }}">Data pipeline and methods ↗</a></p>
+      </aside>{% endif %}
+    </section>
+
+    <section id="context" aria-labelledby="context-heading">
+      <div class="research-section-title"><h2 id="context-heading">The current context</h2><a href="/briefing/feed.xml">Source-update RSS ↗</a></div>
+      <p class="research-context-note">Official reporting to read alongside the research. These source excerpts do not establish the causes of the voting patterns above.</p>
+      <p class="research-notice {% if pulse.status != 'current' %}research-warning{% endif %}" role="status">
+        {% if pulse.stale %}Collection is overdue or has not completed. Retained articles keep their original dates.
+        {% elif pulse.status == 'partial' %}Partial coverage: one or more sources failed or have carried no new articles for over 30 days.
+        {% else %}Source collection is up to date.{% endif %}
+        {% if pulse.checked_at %} Last checked {{ pulse.checked_at | replace('T', ' ') | replace('Z', ' UTC') }}.{% endif %}
+      </p>
+      <form class="research-filters" action="/briefing#context" method="get">
+        <label>Research area<select name="topic"><option value="">All areas</option>{% for t in pulse.topics %}<option {% if topic == t.name %}selected{% endif %} value="{{ t.name }}">{{ t.name }} ({{ t.count }})</option>{% endfor %}</select></label>
+        <label>Issue dossier<select name="issue"><option value="">All issues</option>{% for t in pulse.issues %}<option {% if issue == t.name %}selected{% endif %} value="{{ t.name }}">{{ t.name }} ({{ t.count }})</option>{% endfor %}</select></label>
+        <label>Search<input name="q" value="{{ query }}" maxlength="200" placeholder="Country, institution or subject"></label>
+        <button class="btn btn-primary" type="submit">Filter updates</button>
+      </form>
+      <div class="research-updates">
+        {% for item in pulse.updates %}
+        <article class="research-update">
+          <p class="research-kicker">{{ item.source }} · {{ item.published_at[:10] }}{% if item.revised_at %} · Updated{% endif %}</p>
+          <h3><a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }} ↗</a></h3>
+          <p>{{ item.summary }}</p>
+          <p class="research-tags">{{ item.topics | join(' · ') }}{% if item.issues %} / {{ item.issues | join(' · ') }}{% endif %}</p>
+          {% for other in item.also_reported_by %}<a href="{{ other.url }}" rel="noopener noreferrer">Also published by {{ other.source }}</a>{% endfor %}
+        </article>
+        {% else %}<p class="research-notice">No matching articles from the last seven days. Older material is not relabelled as current.</p>{% endfor %}
+      </div>
+      <details class="research-methods"><summary>Source health and coverage</summary>
+        <p>{{ pulse.methodology }}</p>
+        <ul>{% for source in pulse.sources %}<li><a href="{{ source.url }}">{{ source.name }}</a> — {{ source.status }} · {{ source.scope }}{% if source.last_success_at %} · last successful collection {{ source.last_success_at }}{% endif %}{% if source.latest_item_at %} · latest article {{ source.latest_item_at[:10] }}{% endif %}</li>{% endfor %}</ul>
+      </details>
+    </section>
+  </main>
+  <footer class="research-footer">Collected, calculated, formatted and published automatically. Official reporting is attributed; research interpretations are bounded by the evidence. <a href="/atlas">Open the research atlas ↗</a></footer>
+</div>
+</body>
+</html>

@@ -103,3 +103,14 @@ def test_real_library_rows_supersede_synthetic_ones():
     out = G.drop_superseded_synthetic_rows(df)
     assert len(out) == 3
     assert out[(out.resolution == "A/RES/80/4") & (out.ms_code == "USA")]["undl_id"].tolist() == [4091600]
+
+
+@pytest.mark.parametrize("changes", [
+    {"MS_in_favour": ["BRAZIL"]},
+    {"MS_against": ["BRAZIL"]},
+    {"MS_in_favour_count": "194"},
+])
+def test_incomplete_or_duplicate_rollcalls_never_invent_absentees(changes):
+    existing = _existing()
+    with pytest.raises(ValueError):
+        G.extract_to_rows([_entry(**changes)], G.build_code_lookup(existing), G.current_members(existing))

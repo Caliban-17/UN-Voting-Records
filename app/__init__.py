@@ -71,6 +71,7 @@ def create_app() -> Flask:
     from app.routes.prediction import bp as pred_bp
     from app.routes.jobs import bp as jobs_bp
     from app.routes.story import bp as story_bp
+    from app.routes.pulse import bp as pulse_bp
 
     flask_app.register_blueprint(core_bp)
     flask_app.register_blueprint(analysis_bp, url_prefix="/api/analysis")
@@ -78,5 +79,6 @@ def create_app() -> Flask:
     flask_app.register_blueprint(pred_bp, url_prefix="/api/prediction")
     flask_app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
     flask_app.register_blueprint(story_bp, url_prefix="/api/story")
+    flask_app.register_blueprint(pulse_bp)
 
     return flask_app
