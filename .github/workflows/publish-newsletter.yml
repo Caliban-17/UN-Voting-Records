@@ -95,9 +95,8 @@ jobs:
           # releases cut from an unchanged main all tie, and jq's stable sort
           # would hand `last` the OLDEST of them (this pinned both workflows
           # to data-2026-06-29 for two months).
-          LATEST_TAG=$(gh release list --limit 100 \
-            --json tagName,publishedAt \
-            -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
+          LATEST_TAG=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | \
+            jq -r '[.[][] | select(.tag_name | startswith("data-"))] | sort_by(.published_at) | last.tag_name // empty')
           if [ -n "$LATEST_TAG" ]; then
             echo "Using latest data release: $LATEST_TAG"
             # Download into a scratch dir, never straight into data/: data/ also

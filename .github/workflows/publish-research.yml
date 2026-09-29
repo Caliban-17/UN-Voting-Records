@@ -36,7 +36,8 @@ jobs:
           if gh release view newsletter-current >/dev/null 2>&1; then
             gh release download newsletter-current --pattern latest.json --pattern research.json --pattern decisions.json --pattern newsletter.json --dir data/pulse --clobber
           fi
-          LATEST_TAG=$(gh release list --limit 100 --json tagName,publishedAt -q '[.[] | select(.tagName | startswith("data-"))] | sort_by(.publishedAt) | last.tagName')
+          LATEST_TAG=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | \
+            jq -r '[.[][] | select(.tag_name | startswith("data-"))] | sort_by(.published_at) | last.tag_name // empty')
           test -n "$LATEST_TAG" && test "$LATEST_TAG" != "null"
           mkdir -p /tmp/un-votes
           gh release download "$LATEST_TAG" --pattern '*.csv' --dir /tmp/un-votes
