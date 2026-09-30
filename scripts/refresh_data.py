@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -92,12 +93,39 @@ def _latest_vote_date(df: pd.DataFrame) -> datetime | None:
     return dates.max().to_pydatetime()
 
 
+def _report_quarantined(quarantined: list[dict]) -> None:
+    """Make skipped roll calls visible: log lines locally, annotations in CI."""
+    for item in quarantined:
+        logger.warning(
+            "Quarantined %s (%s): %s. Its rows were not imported; it is retried "
+            "on every refresh until upstream corrects it.",
+            item["symbol"], item["date"], item["reason"],
+        )
+        if os.getenv("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=Quarantined roll call::{item['symbol']}: {item['reason']}")
+
+
+def _prune_archives(source_path: Path, keep: int) -> list[Path]:
+    """Delete all but the newest ``keep`` archived copies of the source CSV.
+
+    Each promote archives the previous ~360 MB file; an unattended refresher
+    would otherwise fill the disk. Timestamped names sort chronologically.
+    """
+    archives = sorted(source_path.parent.glob(f"{source_path.stem}.archived-*.csv"))
+    doomed = archives[:-keep] if keep > 0 else archives
+    for path in doomed:
+        path.unlink()
+        logger.info("Pruned old archive %s.", path)
+    return doomed
+
+
 def _run(
     days: int,
     dry_run: bool,
     output: Path | None,
     promote: bool = False,
     source: str = "github",
+    keep_archives: int | None = None,
 ) -> int:
     """Refresh logic.
 
@@ -134,7 +162,11 @@ def _run(
             "Fetching recorded votes since %s from DGACM's GitHub extracts.",
             cutoff_date,
         )
-        new_df = fetch_recent_votes_github(since_date=cutoff_date, existing_df=existing)
+        quarantined: list[dict] = []
+        new_df = fetch_recent_votes_github(
+            since_date=cutoff_date, existing_df=existing, quarantined=quarantined
+        )
+        _report_quarantined(quarantined)
     if new_df.empty:
         logger.info("No new records returned. Nothing to do.")
         return 0
@@ -215,6 +247,8 @@ def _run(
         )
         shutil.move(str(source_path), str(archive))
         logger.info("Archived previous source → %s.", archive)
+        if keep_archives is not None:
+            _prune_archives(source_path, keep_archives)
     candidate_path.rename(source_path)
     try:
         source_path.chmod(0o444)
@@ -262,10 +296,18 @@ def main() -> int:
              "in as the source CSV. Default behaviour writes to a date-stamped "
              "sibling and leaves the source untouched.",
     )
+    parser.add_argument(
+        "--keep-archives", type=int, default=None, metavar="N",
+        help="With --promote, keep only the newest N archived source CSVs "
+             "(N >= 1). Default keeps every archive.",
+    )
     args = parser.parse_args()
+    if args.keep_archives is not None and args.keep_archives < 1:
+        parser.error("--keep-archives must be at least 1 so a rollback copy survives")
 
     try:
-        delta = _run(args.days, args.dry_run, args.output, args.promote, source=args.source)
+        delta = _run(args.days, args.dry_run, args.output, args.promote,
+                     source=args.source, keep_archives=args.keep_archives)
     except KeyboardInterrupt:
         logger.warning("Interrupted.")
         return 130

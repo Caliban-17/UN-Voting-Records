@@ -19,3 +19,25 @@ services:
       timeout: 10s
       retries: 3
       start_period: 90s
+
+  # Complete roll calls, refreshed outside the web process. The app only reads
+  # the CSV; its pulse worker notices a promoted file and reloads it. Daily on
+  # success, hourly after a failure; keeps two archives for rollback.
+  un-voting-refresher:
+    build: .
+    container_name: un-voting-refresher
+    command:
+      - sh
+      - -c
+      - >-
+        while true; do
+        if python scripts/refresh_data.py --days 90 --promote --keep-archives 2;
+        then sleep 86400; else sleep 3600; fi;
+        done
+    volumes:
+      - ./data:/app/data
+    environment:
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    healthcheck:
+      disable: true

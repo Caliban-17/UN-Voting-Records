@@ -898,6 +898,9 @@ def build_newsletter_edition(
     is the right default when the workflow fires mid-cycle: it skips a
     sparse in-progress year (e.g. May 2026 having 1 resolution so far)
     and anchors the analysis on the most recent complete-enough year.
+
+    ``live_updates`` (without ``country_focus``) returns the automated current
+    edition from ``src.newsletter_live`` instead; country editions ignore it.
     """
     if live_updates and not country_focus:
         from src.newsletter_live import build_current_edition
@@ -1214,8 +1217,6 @@ def build_newsletter_edition(
         "name_lookup": name_lookup,
     }
 
-    current_affairs = live_updates or {}
-
     # Stable email subject — same headline becomes the same subject across
     # composer reruns, which is what makes idempotent auto-publish safe.
     if country_focus:
@@ -1275,18 +1276,9 @@ def build_newsletter_edition(
     # trigger one spurious re-send of an unchanged edition.
     if this_week.get("votes"):
         content_payload["this_week"] = sorted(int(v["rcid"]) for v in this_week["votes"])
-    if current_affairs:
-        # Poll times and health diagnostics must not manufacture a new edition.
-        content_payload["current_affairs"] = {
-            k: v for k, v in current_affairs.items()
-            if k not in ("checked_at", "sources", "window_start", "window_end")
-        }
     content_hash = _hashlib.sha256(
         _json.dumps(content_payload, sort_keys=True, default=str).encode()
     ).hexdigest()
-
-    if current_affairs:
-        edition_slug += "-" + content_hash[:12]
 
     return NewsletterEdition(
         publication=publication_label,
@@ -1318,7 +1310,6 @@ def build_newsletter_edition(
         this_week=this_week,
         calendar=calendar,
         lenses=lenses,
-        current_affairs=current_affairs,
         lead_story=lead_story,
         lead_story_why_it_matters=lead_why,
         top_movers=top_movers,

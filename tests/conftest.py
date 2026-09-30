@@ -15,6 +15,11 @@ from src.config import UN_VOTES_CSV_PATH
 # above pulls in matplotlib, so this is early enough.)
 os.environ.setdefault("MPLBACKEND", "Agg")
 
+# Test modules import web_app at collection time, and web_app starts the pulse
+# worker at import. A test run must never poll UN sources or --promote the
+# real voting CSV, so the worker is always off under pytest.
+os.environ["PULSE_AUTO_REFRESH"] = "0"
+
 
 def _real_dataset_available() -> bool:
     """True when the full UN voting CSV is present.

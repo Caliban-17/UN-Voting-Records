@@ -96,3 +96,23 @@ def test_core_modules_do_not_use_streamlit_cache_decorators():
             assert not any(
                 d.startswith("st.cache") for d in fn_decorators
             ), f"{path}:{fn_name} still uses Streamlit cache decorator {fn_decorators}"
+
+
+def test_reloading_data_clears_request_caches(monkeypatch):
+    import pandas as pd
+
+    import src.data_processing
+    from app import services
+    from src.cache_utils import api_cache
+
+    monkeypatch.setattr(services, "df_global", services.df_global)
+    frame = pd.DataFrame({"year": [2025], "date": [pd.Timestamp("2025-12-01")]})
+    monkeypatch.setattr(src.data_processing, "load_and_preprocess_data", lambda path: (frame, None))
+    for cache in (api_cache, services.soft_power_trends_registry, services.network_animation_registry):
+        cache.put("stale", {"from": "the previous frame"})
+
+    services.load_data()
+
+    assert services.get_df() is frame
+    for cache in (api_cache, services.soft_power_trends_registry, services.network_animation_registry):
+        assert cache.get("stale") is None

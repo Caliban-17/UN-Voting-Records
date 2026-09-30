@@ -31,6 +31,8 @@ below describing its scheduled emails no longer describes the default publishing
 The faster GA register provides aggregate outcomes independently of the slower complete
 country roll calls. The newsletter shows both coverage dates and never invents country
 positions from aggregate totals. The full voting-data workflow checks daily at 04:00 UTC.
+Under Docker Compose, the `un-voting-refresher` service does the same for a self-hosted
+app; the web process itself only reads the CSV and reloads it when a refresh lands.
 
 Run `python scripts/refresh_pulse.py --require-research` for a complete collection, analysis
 and publication pass. Output lives in `data/pulse/` (gitignored). See

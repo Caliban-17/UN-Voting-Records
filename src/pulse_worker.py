@@ -1,13 +1,15 @@
-"""Single-writer automatic collection and research publication."""
+"""Single-writer automatic collection and research publication.
+
+The web process only reads the voting CSV. Complete roll calls are refreshed and
+promoted outside it (refresh-data.yml, or the compose ``un-voting-refresher``
+service); the worker notices the promoted file and reloads it.
+"""
 
 from datetime import datetime
 import fcntl
 import json
 import logging
 import os
-from pathlib import Path
-import subprocess
-import sys
 import threading
 
 from src.pulse import UTC, atomic_json, data_dir, refresh
@@ -35,7 +37,12 @@ def refresh_all(directory=None, dataframe=None):
                 prior = json.loads(path.read_text()) if path.exists() else {}
             except ValueError:
                 prior = {}
-            if brief.get("content_hash") != prior.get("content_hash") or not prior or brief.get("status") != "ready":
+            if brief.get("status") != "ready" and prior.get("status") == "ready":
+                # A thin or failed rebuild must not unpublish good research.
+                logger.warning("Research rebuild not ready (%s); keeping the published brief",
+                               brief.get("message"))
+                brief = prior
+            elif brief.get("content_hash") != prior.get("content_hash") or not prior or brief.get("status") != "ready":
                 if brief.get("status") == "ready":
                     archive = directory / "research" / f"{brief['content_hash'][:16]}.json"
                     if archive.exists():
@@ -47,42 +54,6 @@ def refresh_all(directory=None, dataframe=None):
                 from src.newsletter_publisher import publish_newsletter
                 publish_newsletter(dataframe, decisions, snapshot, brief, directory)
         return snapshot
-
-
-def refresh_votes_if_due(directory=None, now=None, runner=subprocess.run):
-    """Daily complete-roll-call catch-up while the app is running."""
-    from src.pulse import date_value, stamp
-    directory = directory or data_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    now = now or datetime.now(UTC)
-    with (directory / ".votes-refresh.lock").open("w") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return None
-        path = directory / "votes-refresh.json"
-        try:
-            previous = json.loads(path.read_text())
-        except (OSError, ValueError):
-            previous = {}
-        checked = date_value(previous.get("checked_at"))
-        interval = 86400 if previous.get("status") == "ok" else 3600
-        if checked and (now - checked).total_seconds() < interval:
-            return None
-        result = {"checked_at": stamp(now), "status": "error"}
-        root = Path(__file__).resolve().parents[1]
-        try:
-            process = runner([sys.executable, str(root / "scripts" / "refresh_data.py"),
-                              "--days", "90", "--promote"], cwd=root,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=600)
-            if process.returncode:
-                raise RuntimeError(f"Voting refresh exited {process.returncode}: {process.stderr[-1000:]}")
-            result["status"] = "ok"
-        except Exception as exc:
-            result["error"] = str(exc)[:1200]
-            logger.warning("Automatic complete-roll-call refresh failed: %s", exc)
-        atomic_json(path, result)
-        return result
 
 
 def start_worker(dataframe_provider, reload_data=None):
@@ -101,6 +72,10 @@ def start_worker(dataframe_provider, reload_data=None):
 
     def work():
         loaded_version = source_version()
+        # A missing edition is retried as soon as data first arrives, then only
+        # at the normal interval: a state that cannot publish (no evidence, thin
+        # research) must not poll every source once a minute.
+        attempted_with_data = False
         while True:
             try:
                 # Also avoid duplicate fetches by processes that acquire the lock
@@ -112,15 +87,18 @@ def start_worker(dataframe_provider, reload_data=None):
                     if not reload_data():
                         raise RuntimeError("Changed voting data could not be loaded")
                     loaded_version = version
+                    attempted_with_data = False
                 checked = date_value(read_snapshot().get("checked_at"))
-                missing_research = (not (data_dir() / "research.json").exists() or not (data_dir() / "newsletter.json").exists()) and dataframe_provider() is not None
+                has_data = dataframe_provider() is not None
+                missing_research = has_data and not attempted_with_data and (
+                    not (data_dir() / "research.json").exists()
+                    or not (data_dir() / "newsletter.json").exists())
                 if checked is None or changed or missing_research or (datetime.now(UTC) - checked).total_seconds() >= interval:
+                    attempted_with_data = attempted_with_data or has_data
                     try:
                         refresh_all(dataframe=dataframe_provider())
                     except Exception:
                         logger.exception("Newsletter refresh failed; retaining the last edition")
-                if dataframe_provider() is not None:
-                    refresh_votes_if_due()
             except Exception:
                 logger.exception("Automatic briefing refresh failed; retaining the last published edition")
             threading.Event().wait(min(interval, 60))

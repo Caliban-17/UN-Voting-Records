@@ -112,6 +112,13 @@ def newsletter_edition(edition_id):
     return Response(render_html(edition_from_dict(payload)), mimetype="text/html")
 
 
+def _mtime(path):
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 @bp.get("/newsletter/feed.xml")
 def newsletter_feed():
     root = ET.Element("rss", version="2.0")
@@ -119,8 +126,10 @@ def newsletter_feed():
     ET.SubElement(channel, "title").text = "UN-Scrupulous | The UN newsletter"
     ET.SubElement(channel, "link").text = url_for("pulse.newsletter", _external=True)
     ET.SubElement(channel, "description").text = "Automatically published decisions, world affairs and political research."
+    # Archives are written once, so mtime orders them by first publication:
+    # parse only the newest instead of every edition ever archived.
     editions = []
-    for path in (data_dir() / "newsletters").glob("*.json"):
+    for path in sorted((data_dir() / "newsletters").glob("*.json"), key=_mtime, reverse=True)[:60]:
         try:
             editions.append(json.loads(path.read_text()))
         except (OSError, ValueError):

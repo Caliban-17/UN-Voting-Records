@@ -35,7 +35,8 @@ TOPICS = {
     "Peace & security": r"\b(war|conflict|ceasefire|security council|peacekeep\w*|disarmament|nuclear|missile\w*|terroris\w*)\b",
     "Humanitarian": r"\b(humanitarian|aid|famine|hunger|displac\w*|refugee\w*|relief|food insecurity)\b",
     "Human rights": r"\b(rights|torture|discrimination|racism|women|gender|detention|justice)\b",
-    "Health": r"\b(health|who|disease|pandemic|epidemic|vaccine\w*|cholera|mpox|ebola)\b",
+    # WHO is matched case-sensitively: the pronoun "who" is not a health story.
+    "Health": r"\b(health|(?-i:WHO)|disease|pandemic|epidemic|vaccine\w*|cholera|mpox|ebola)\b",
     "Climate & development": r"\b(climate|environment\w*|emission\w*|biodiversity|development|poverty|econom\w*|trade|education|sustainable|sdgs)\b",
     "UN affairs": r"\b(budget|reform|appoint\w*|elect\w*|secretary.general|general assembly|funding|financ\w*|contribution\w*)\b",
 }

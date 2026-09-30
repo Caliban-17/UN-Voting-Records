@@ -48,6 +48,11 @@ def load_data(use_cache=True) -> bool:
         df_result, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH))
         df_global = df_result
         reset_country_name_cache()
+        # The pulse worker reloads a promoted CSV in place; responses computed
+        # from the previous frame must not outlive it.
+        from src.cache_utils import api_cache
+        for cache in (api_cache, soft_power_trends_registry, network_animation_registry):
+            cache.clear()
         logger.info("Loaded %d voting records", len(df_global))
         info = data_freshness()
         latest = info.get("latest_vote_date") or "?"
