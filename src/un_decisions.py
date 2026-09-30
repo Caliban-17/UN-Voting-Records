@@ -37,8 +37,8 @@ def parse_register(body, session, now):
         cells = row.find_all(["th", "td"], recursive=False)
         if len(cells) != 3 or not cells[0].find("a"):
             continue
-        number = cells[0].get_text(" ", strip=True)
-        if not re.fullmatch(rf"{session}/\d+", number):
+        number = " ".join(cells[0].stripped_strings)
+        if not re.fullmatch(rf"{session}/\d+(?: [A-Z])?", number):
             continue
         title = " ".join(cells[1].stripped_strings)
         action = " ".join(cells[2].stripped_strings)
@@ -56,7 +56,7 @@ def parse_register(body, session, now):
         records.append({"symbol": f"A/RES/{number}", "session": session, "title": title,
                         "date": adopted.isoformat(), "tally": tally,
                         "adoption": "recorded_vote" if tally else "without_vote",
-                        "url": f"https://docs.un.org/en/A/RES/{number}",
+                        "url": f"https://docs.un.org/en/A/RES/{number.split()[0]}",
                         "source_url": REGISTER.format(session=session), "source": "UN General Assembly resolutions register"})
     if not records:
         raise ValueError("Register contained no recognised resolutions; preserving previous coverage")

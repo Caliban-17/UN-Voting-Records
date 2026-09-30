@@ -159,7 +159,11 @@ def test_latest_data_release_is_resolved_by_publish_date():
     back the OLDEST tied release — which silently pinned both workflows to
     data-2026-06-29 for two months. Resolve by ``publishedAt`` instead.
     """
-    for path in (WORKFLOW_PATH, REFRESH_WORKFLOW_PATH):
+    for path in (WORKFLOW_PATH, REFRESH_WORKFLOW_PATH, Path(".github/workflows/publish-research.yml")):
         code = _all_step_runs(path)
-        assert "sort_by(.createdAt)" not in code, f"{path}: sorts releases on createdAt"
-        assert "sort_by(.publishedAt)" in code, f"{path}: must sort data releases on publishedAt"
+        for field in ("createdAt", "created_at"):
+            assert f"sort_by(.{field})" not in code, f"{path}: sorts releases on commit creation date"
+        # gh release list uses GraphQL names; gh api uses REST names.
+        assert any(f"sort_by(.{field})" in code for field in ("publishedAt", "published_at")), (
+            f"{path}: must sort data releases on publication date"
+        )

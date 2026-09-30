@@ -70,3 +70,10 @@ def test_digest_filters_future_and_old_records_and_diversifies_headlines():
     assert len(live["decisions"]) == 1
     assert len(live["headlines"]) == 2
     assert live["recorded_count"] == 1
+
+
+def test_lettered_resolution_parts_are_distinct_adoptions():
+    body = register(80).replace(b'>80/1<', b'>80/1 A<') + register(80).replace(b'>80/1<', b'>80/1 B<')
+    records = parse_register(body, 80, NOW)
+    assert [r["symbol"] for r in records] == ["A/RES/80/1 A", "A/RES/80/1 B"]
+    assert all(r["url"] == "https://docs.un.org/en/A/RES/80/1" for r in records)
