@@ -164,3 +164,22 @@ def test_worker_preserves_research_publication_date(tmp_path, monkeypatch):
     pulse_worker.refresh_all(tmp_path, votes())
     assert (tmp_path / "research.json").read_text() == before
     assert len(list((tmp_path / "research").glob("*.json"))) == 1
+
+
+def test_health_topic_needs_the_organisation_not_the_pronoun():
+    fled, _ = parse_feed(feed(title="Civilians who fled the shelling reach the border"), SOURCES[0], NOW)
+    assert "Health" not in fled[0]["topics"]
+    who, _ = parse_feed(feed(title="WHO warns of cholera spread"), SOURCES[0], NOW)
+    assert "Health" in who[0]["topics"]
+
+
+def test_worker_never_replaces_ready_research_with_a_thin_rebuild(tmp_path, monkeypatch):
+    from src import pulse_worker
+    monkeypatch.setattr(pulse_worker, "refresh", lambda directory: {"items": [], "sources": []})
+    monkeypatch.setattr("src.un_decisions.refresh_decisions", lambda directory: {"records": [], "sources": []})
+    monkeypatch.setattr("src.newsletter_publisher.publish_newsletter", lambda *args: {"changed": False})
+    pulse_worker.refresh_all(tmp_path, votes())
+    before = (tmp_path / "research.json").read_text()
+    frame = votes()
+    pulse_worker.refresh_all(tmp_path, frame[frame.year == 2025])
+    assert (tmp_path / "research.json").read_text() == before

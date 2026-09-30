@@ -3,6 +3,14 @@
 from html import escape
 
 
+# Keys of current_affairs that never change an edition's content hash.
+EDITION_CONTEXT_KEYS = ("checked_at", "sources", "window_start", "window_end", "headlines")
+
+
+def _plural(count, noun):
+    return f"{count} {noun}" + ("" if count == 1 else "s")
+
+
 def sections(edition):
     live = edition.current_affairs
     decisions = live.get("decisions", [])
@@ -30,11 +38,12 @@ def sections(edition):
     add("h2", "Decisions that matter")
     add("small", f"Published regular-session GA resolutions · {live['window_start']} to {live['window_end']}")
     for item in decisions:
-        add("link", item["title"], item["source_url"])
+        # Title opens the resolution itself; the metadata line cites the register.
+        add("link", item["title"], item.get("url") or item["source_url"])
         tally = item["tally"]
         outcome = (f"{tally['yes']} for · {tally['no']} against · {tally['abstain']} abstaining"
                    if tally else "Adopted without a vote")
-        add("small", f"{item['date']} · {item['symbol']} · {outcome}")
+        add("small", f"{item['date']} · {item['symbol']} · {outcome}", item["source_url"])
     if not decisions:
         add("p", "No resolutions in this date window were available in the monitored registers. This is not evidence that the UN was inactive.")
 
@@ -138,14 +147,18 @@ def build_current_edition(live, edition_date=None):
     from src.newsletter import NewsletterEdition, LeadStory, TOCItem
 
     date = datetime.strptime(edition_date, "%Y-%m-%d") if edition_date else datetime.now(timezone.utc)
-    editorial = {k: v for k, v in live.items() if k not in ("checked_at", "sources", "window_start", "window_end")}
-    digest = hashlib.sha256(json.dumps({"editorial_version": 3, **editorial}, sort_keys=True).encode()).hexdigest()
+    # A new edition means new decisions, tally corrections or changed research.
+    # Headlines are context, like the calendar and big-picture sections: a new
+    # wire story alone must not mint an edition, a release and a tag.
+    editorial = {k: v for k, v in live.items() if k not in EDITION_CONTEXT_KEYS}
+    digest = hashlib.sha256(json.dumps({"editorial_version": 4, **editorial}, sort_keys=True).encode()).hexdigest()
     decisions = live.get("decisions", [])
     headline = "The UN dispatch"
     lede = "Current official reporting and the latest available voting research."
     if decisions:
         latest = decisions[0]
-        headline = f"{len(decisions)} decisions, {live['recorded_count']} recorded votes"
+        headline = (f"{_plural(len(decisions), 'decision')}, "
+                    f"{_plural(live['recorded_count'], 'recorded vote')}")
         tally = latest["tally"]
         result = (f"{tally['yes']} in favour, {tally['no']} against and {tally['abstain']} abstaining"
                   if tally else "without a recorded vote")

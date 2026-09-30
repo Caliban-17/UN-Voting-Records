@@ -196,16 +196,53 @@ def _count(entry: dict, key: str, fallback: int) -> int:
     return int(value) if value.isdigit() else fallback
 
 
+def _tally_problem(lists: dict, totals: dict) -> Optional[str]:
+    """Why a roll call's name lists cannot be trusted, or None if they can."""
+    for letter, count_key in (("Y", "total_yes"), ("N", "total_no"), ("A", "total_abstentions")):
+        if not isinstance(lists[letter], list):
+            return f"{letter} names are not a list"
+        if len(lists[letter]) != totals[count_key]:
+            return (f"{len(lists[letter])} {letter} names against a published "
+                    f"tally of {totals[count_key]}")
+    if not 0 < sum(totals.values()) <= 193:
+        return f"invalid recorded-vote total {sum(totals.values())}"
+    return None
+
+
+def _collect_votes(
+    lists: dict, code_lookup: dict[str, str], unmapped: set[str]
+) -> tuple[dict[str, tuple[str, str]], Optional[str]]:
+    """ISO-3 -> (vote letter, extract name); a member named twice is a problem."""
+    voted: dict[str, tuple[str, str]] = {}
+    for letter, names in lists.items():
+        for name in names:
+            code = code_lookup.get(normalize_name(name))
+            if not code:
+                unmapped.add(str(name))
+                continue
+            if code in voted:
+                return voted, f"{code} is named twice"
+            voted[code] = (letter, str(name))
+    return voted, None
+
+
 def extract_to_rows(
     entries: Iterable[dict],
     code_lookup: dict[str, str],
     members: Iterable[str],
     since_date: Optional[str] = None,
     member_names: Optional[dict[str, str]] = None,
+    quarantined: Optional[list[dict]] = None,
 ) -> list[dict]:
     """One CSV-schema row per (resolution, member) for every recorded vote in
     ``entries`` on or after ``since_date``. Raises ``ValueError`` naming any
-    member the lookup cannot map, rather than dropping votes silently."""
+    member the lookup cannot map, rather than dropping votes silently.
+
+    A roll call whose name lists disagree with its published tally, or that
+    names a member twice, is quarantined: none of its rows are emitted (an
+    incomplete list must never turn missing voters into absentees), it is
+    appended to ``quarantined`` with the reason, and the rest of the batch is
+    still imported. Upstream corrections are picked up by the next refresh."""
     member_set = {str(m).strip().upper() for m in members}
     unmapped: set[str] = set()
     rows: list[dict] = []
@@ -225,11 +262,15 @@ def extract_to_rows(
             "total_no": _count(entry, "MS_against_count", len(lists["N"])),
             "total_abstentions": _count(entry, "MS_abstaining_count", len(lists["A"])),
         }
-        for letter, count_key in (("Y", "total_yes"), ("N", "total_no"), ("A", "total_abstentions")):
-            if not isinstance(lists[letter], list) or len(lists[letter]) != totals[count_key]:
-                raise ValueError(f"Incomplete roll call for {symbol}: {letter} names do not match published tally")
-        if not 0 < sum(totals.values()) <= 193:
-            raise ValueError(f"Invalid recorded-vote total for {symbol}")
+        problem = _tally_problem(lists, totals)
+        voted: dict[str, tuple[str, str]] = {}
+        if problem is None:
+            voted, problem = _collect_votes(lists, code_lookup, unmapped)
+        if problem:
+            logger.warning("Quarantined %s (%s): %s; no rows emitted", symbol, date, problem)
+            if quarantined is not None:
+                quarantined.append({"symbol": symbol, "date": date, "reason": problem})
+            continue
         subjects = "|".join(
             str(term).strip()
             for pair in (entry.get("subjects") or [])
@@ -253,16 +294,6 @@ def extract_to_rows(
             "undl_link": f"https://digitallibrary.un.org/search?p={symbol}",
             "source": SOURCE_NOTE,
         }
-        voted: dict[str, tuple[str, str]] = {}
-        for letter, names in lists.items():
-            for name in names:
-                code = code_lookup.get(normalize_name(name))
-                if not code:
-                    unmapped.add(str(name))
-                    continue
-                if code in voted:
-                    raise ValueError(f"Duplicate country {code} in roll call for {symbol}")
-                voted[code] = (letter, str(name))
         base["total_non_voting"] = max(0, len(member_set - set(voted))) if member_set else None
         for code, (letter, name) in sorted(voted.items()):
             rows.append({**base, "ms_code": code, "ms_name": normalize_name(name), "ms_vote": letter})
@@ -299,10 +330,12 @@ def fetch_recent_votes(
     since_date: Optional[str],
     existing_df: Optional[pd.DataFrame],
     session: Optional[requests.Session] = None,
+    quarantined: Optional[list[dict]] = None,
 ) -> pd.DataFrame:
     """Every recorded vote in the extracts dated on or after ``since_date``,
     in the historical CSV's schema. Needs the existing CSV for the name→code
-    map and the current member list."""
+    map and the current member list. Roll calls that fail validation are
+    appended to ``quarantined`` (see ``extract_to_rows``)."""
     s = session or requests.Session()
     names = list_extract_files(session=s)
     logger.info("GitHub extracts available: %s", ", ".join(names))
@@ -314,7 +347,8 @@ def fetch_recent_votes(
     lookup = build_code_lookup(existing_df)
     members = current_members(existing_df)
     rows = extract_to_rows(
-        entries, lookup, members, since_date=since_date, member_names=names_by_code(existing_df)
+        entries, lookup, members, since_date=since_date,
+        member_names=names_by_code(existing_df), quarantined=quarantined,
     )
     if not rows:
         return pd.DataFrame()

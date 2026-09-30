@@ -39,11 +39,14 @@ The app's background worker collects immediately and subsequently every 30 minut
 `PULSE_AUTO_REFRESH=0` disables it in controlled environments. `PULSE_REFRESH_SECONDS`
 sets the interval (minimum five minutes); `PULSE_DATA_DIR` changes the output directory.
 Run the app under a persistent process supervisor or Docker for unattended operation.
-The app checks the complete voting dataset daily, safely promotes verified updates,
-and reloads changes automatically. Failed checks retry after one hour; source outcomes
-are stored in `data/pulse/votes-refresh.json`. The scheduled
-GitHub workflow always downloads the newest data release before
-analysis, so its published research follows refreshed source data automatically.
+The web process never refreshes or promotes the voting CSV itself. It watches the
+file and reloads a promoted update automatically, clearing cached responses. Complete
+roll calls are refreshed by `refresh-data.yml` daily at 04:00 UTC; self-hosted Docker
+deployments get the same from the `un-voting-refresher` compose service, which runs
+`scripts/refresh_data.py --promote --keep-archives 2` daily (hourly after a failure)
+and keeps two archived copies for rollback. The scheduled GitHub workflow always
+downloads the newest data release before analysis, so its published research follows
+refreshed source data automatically.
 
 `scripts/refresh_pulse.py --require-research` does one complete pass and exports a
 self-contained newsletter in HTML, Markdown, text and canonical JSON, alongside the
@@ -51,8 +54,10 @@ research briefing and source diagnostics. `/newsletter` serves the exact saved e
 `/newsletter/feed.xml` provides stable edition identifiers and links to immutable archives.
 `.github/workflows/publish-research.yml` runs it every six hours and after the existing
 data-refresh workflow succeeds. The `newsletter-current` release has current artifacts;
-each changed editorial hash gets an immutable `newsletter-<hash>` release. Poll timestamps
-and health changes do not trigger a new edition. Source corrections do. No mail, Substack draft or human
+each changed editorial hash gets an immutable `newsletter-<hash>` release. The hash covers
+decisions, tallies and research findings. Poll timestamps, health changes and headlines do
+not trigger a new edition (headlines are context, frozen with the edition they appeared
+in); source corrections do. A decision leaving the 30-day window also changes the hash. No mail, Substack draft or human
 approval gate is required. This is downloadable publication, not public website hosting.
 The interactive site is served by the existing Flask deployment.
 
@@ -102,7 +107,10 @@ register shrinkage fail that source and preserve its previous verified records.
 `data/pulse/decisions.json` is a separate decision ledger. It includes resolutions adopted
 without a vote and never converts their adoption into 193 invented Yes votes. Aggregate
 recorded results also never create country rows. Full roll calls must arrive through the
-validated voting-data pipeline before entering alignment research.
+validated voting-data pipeline before entering alignment research. A roll call whose name
+lists disagree with its published tally, or that names a member twice, is quarantined:
+none of its rows are imported, the refresh logs it (and annotates the CI run), and the rest
+of the batch still merges. It is retried on every refresh until upstream corrects it.
 
 The 30-day newsletter includes a bounded selection of official headlines, the GA decision
 ledger for that period, an institutional adoption indicator, and three research findings.

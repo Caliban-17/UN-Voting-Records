@@ -111,6 +111,22 @@ def test_real_library_rows_supersede_synthetic_ones():
     {"MS_in_favour_count": "194"},
 ])
 def test_incomplete_or_duplicate_rollcalls_never_invent_absentees(changes):
+    # Real upstream cases: A/RES/77/293 lists 58 abstainers against a tally of
+    # 59; A/RES/75/290 A names every member twice. One bad roll call is set
+    # aside; it must neither emit rows nor block the rest of the batch.
     existing = _existing()
-    with pytest.raises(ValueError):
-        G.extract_to_rows([_entry(**changes)], G.build_code_lookup(existing), G.current_members(existing))
+    quarantined = []
+    rows = G.extract_to_rows(
+        [_entry(**changes), _entry(symbol="A/RES/80/998")],
+        G.build_code_lookup(existing), G.current_members(existing), quarantined=quarantined,
+    )
+    assert {r["resolution"] for r in rows} == {"A/RES/80/998"}
+    assert [q["symbol"] for q in quarantined] == ["A/RES/80/999"]
+    assert quarantined[0]["reason"]
+
+
+def test_quarantine_still_raises_for_unmapped_names():
+    existing = _existing()
+    with pytest.raises(ValueError, match="no ISO-3 mapping"):
+        G.extract_to_rows([_entry(MS_against=["ATLANTIS"])], G.build_code_lookup(existing),
+                          G.current_members(existing))

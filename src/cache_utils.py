@@ -43,6 +43,10 @@ class LRUCache:
             if len(self.cache) > self.capacity:
                 self.cache.popitem(last=False)
 
+    def clear(self):
+        with self.lock:
+            self.cache.clear()
+
 
 # Global instances
 api_cache = LRUCache(capacity=100, ttl_seconds=300)

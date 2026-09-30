@@ -11,7 +11,12 @@ The default home page is now an **automatically published political research bri
 The primary newsletter is at `/newsletter`, automatically formatted and archived by
 `src/newsletter_publisher.py` using `src/newsletter_live.py`. Faster official GA decisions
 come from `src/un_decisions.py`, separate from complete country roll calls; never infer
-country votes from aggregate tallies. The worker also refreshes complete roll calls daily.
+country votes from aggregate tallies. The web process never refreshes or promotes the
+voting CSV: `refresh-data.yml` does that daily, and self-hosted deployments run the compose
+`un-voting-refresher` service; the worker only reloads a promoted CSV (and clears request
+caches). A roll call whose names disagree with its tally is quarantined, not imported.
+The live edition's `content_hash` covers decisions and research only; headlines, like
+the calendar, are context outside the hash (`EDITION_CONTEXT_KEYS`).
 The existing interactive atlas is at `/atlas`. Quantitative findings come from
 `src/research_brief.py`; source-attributed current context comes from `src/pulse.py`.
 `src/pulse_worker.py` refreshes without a visitor and detects changed voting CSVs.
@@ -187,15 +192,16 @@ Contracts that regression tests enforce
 - Topic phrases keep initialisms upper-case (`_ACRONYMS` in
   `newsletter_voice.py`: HIV/AIDS, UNRWA, …); add there, not to `_PROPER_NOUNS`.
 
-Schedule: `refresh-data.yml` Monday 22:00 UTC pulls new votes via MARC-XML
-and, if rows changed, publishes a GitHub Release `data-YYYY-MM-DD` with the
-full CSV. `publish-newsletter.yml` Tuesday 09:00 UTC downloads the newest
-release, refuses data older than 90 days, composes the global edition plus a
-curated per-country matrix (`COUNTRY_EDITIONS`), gates on the ledger, emails
-via SMTP, then commits the ledger back to `main` as `atlas-bot`.
+Schedule: `refresh-data.yml` daily 04:00 UTC pulls new votes from DGACM's
+GitHub extracts and, if rows changed, publishes a GitHub Release
+`data-YYYY-MM-DD` with the full CSV. `publish-research.yml` runs every six
+hours and after each successful refresh, publishing `newsletter-current` and an
+immutable `newsletter-<hash>` release per changed edition. The legacy
+`publish-newsletter.yml` (Weekly Atlas by SMTP, ledger commits as `atlas-bot`)
+is manual-dispatch only.
 
-Consequence: **`main` moves without you.** Pull before pushing; ledger commits
-land most Tuesdays in season.
+Consequence: `main` can still move without you after a manual Weekly Atlas
+send (ledger commits). Pull before pushing.
 
 ## Data
 
