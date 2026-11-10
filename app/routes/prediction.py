@@ -9,9 +9,10 @@ from collections import defaultdict
 from flask import Blueprint, jsonify, request
 
 from app.middleware import with_analysis_slot
-from app.routes.core import make_error, make_server_error
+from app.routes.core import make_error, make_server_error, reject_value_error
 from app.services import (
     get_df,
+    normalize_country_code,
     validate_train_test_years,
     get_method_metadata,
     compute_training_payload,
@@ -33,7 +34,7 @@ def train_model():
         payload = compute_training_payload(train_end, test_start)
         return jsonify(payload)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Training error", exc)
 
@@ -53,11 +54,11 @@ def predict_vote():
         train_end, test_start = validate_train_test_years(data)
         prediction_year = data.get("prediction_year", test_start)
 
-        if not issue:
-            return make_error("issue is required", 400)
+        if not issue or not isinstance(issue, str):
+            return make_error("issue is required and must be text", 400)
         try:
             prediction_year = int(prediction_year)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return make_error("prediction_year must be an integer", 400)
 
         cache_key = f"{train_end}_{test_start}"
@@ -74,9 +75,10 @@ def predict_vote():
         elif not isinstance(countries, list):
             return make_error("countries must be a list", 400)
 
-        countries = [str(c).strip() for c in countries if str(c).strip()]
         if len(countries) > 500:
             return make_error("countries list exceeds maximum size (500)", 400)
+        # Unknown or differently-cased codes used to get a prediction anyway.
+        countries = list(dict.fromkeys(normalize_country_code(c) for c in countries))
 
         from src.model import predict_votes
 
@@ -109,7 +111,7 @@ def predict_vote():
             }
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Prediction error", exc)
 

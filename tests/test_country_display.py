@@ -77,3 +77,8 @@ def test_title_case_name_is_idempotent_and_tolerates_empty():
     assert twice == "Saint Vincent and the Grenadines"
     assert title_case_name("") == ""
     assert title_case_name(None) == ""
+
+
+def test_the_soviet_union_is_not_title_cased_into_ussr_lowercase():
+    from src.country_display import display_name
+    assert display_name("SUN", "USSR") == "USSR"

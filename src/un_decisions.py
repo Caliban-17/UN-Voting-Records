@@ -10,9 +10,17 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from src.pulse import UTC, atomic_json, data_dir, stamp
+from src.pulse import UTC, atomic_json, data_dir, headline_priority, is_routine, stamp
 
 REGISTER = "https://public.e-delegate.un.org/reports/ga{session}_resolutions.html"
+
+
+def decision_order(record):
+    """Sort key: adoption date, then session, number and letter as numbers.
+    Symbols compared as text put A/RES/80/99 after A/RES/80/106."""
+    match = re.fullmatch(r"A/RES/(\d+)/(\d+)(?: ([A-Z]))?", record["symbol"])
+    session, number, letter = (int(match[1]), int(match[2]), match[3] or "") if match else (0, 0, "")
+    return (record["date"], session, number, letter)
 
 
 def fetch_register(url):
@@ -56,7 +64,8 @@ def parse_register(body, session, now):
         records.append({"symbol": f"A/RES/{number}", "session": session, "title": title,
                         "date": adopted.isoformat(), "tally": tally,
                         "adoption": "recorded_vote" if tally else "without_vote",
-                        "url": f"https://docs.un.org/en/A/RES/{number.split()[0]}",
+                        # A lettered part has its own document: 80/293 A is A/RES/80/293A.
+                        "url": f"https://docs.un.org/en/A/RES/{number.replace(' ', '')}",
                         "source_url": REGISTER.format(session=session), "source": "UN General Assembly resolutions register"})
     if not records:
         raise ValueError("Register contained no recognised resolutions; preserving previous coverage")
@@ -90,13 +99,21 @@ def refresh_decisions(directory=None, now=None, fetcher=fetch_register):
             old_count = sum(r["session"] == number for r in records.values())
             if len(fetched) < old_count:
                 raise ValueError("Register unexpectedly shrank; retaining previous records")
-            records.update({r["symbol"]: r for r in fetched})
+            for record in fetched:
+                known = records.get(record["symbol"])
+                # When a symbol first entered a register we were already
+                # following. A register read for the first time is not news.
+                record["first_seen_at"] = (
+                    known.get("first_seen_at") if known is not None
+                    else (stamp(now) if old_count else None)
+                )
+                records[record["symbol"]] = record
             status.update(status="ok", count=len(fetched), last_success_at=stamp(now))
         except Exception as exc:
             status.update(status="error", error=str(exc)[:200])
         sources.append(status)
     result = {"checked_at": stamp(now), "sources": sources,
-              "records": sorted(records.values(), key=lambda r: (r["date"], r["symbol"]), reverse=True)}
+              "records": sorted(records.values(), key=decision_order, reverse=True)}
     result["data_through"] = max((r["date"] for r in result["records"]), default=None)
     atomic_json(directory / "decisions.json", result)
     return result
@@ -107,25 +124,45 @@ def current_affairs(decisions, pulse, research, now=None):
     now = now or datetime.now(UTC)
     start = (now - timedelta(days=29)).date().isoformat()
     end = now.date().isoformat()
-    records = [r for r in decisions.get("records", []) if start <= r["date"] <= end]
-    records.sort(key=lambda r: (r["date"], r["symbol"]), reverse=True)
+
+    def public(record, **extra):
+        return {**{k: v for k, v in record.items() if k != "first_seen_at"}, **extra}
+
+    ledger = decisions.get("records", [])
+    records = [public(r) for r in ledger if start <= r["date"] <= end]
+    records.sort(key=decision_order, reverse=True)
     recorded = sum(r["tally"] is not None for r in records)
-    # A digest needs breadth; avoid letting several reports of one issue dominate.
-    headlines, used_issues = [], set()
-    for item in sorted(pulse.get("items", []), key=lambda x: x["published_at"], reverse=True):
-        if "/blog/" in item["url"]:
-            continue
-        if not start <= item["published_at"][:10] <= end:
-            continue
+    # The register sometimes publishes a resolution weeks after its adoption.
+    # A window on the adoption date alone would never show it in any edition.
+    late = [public(r, registered=r["first_seen_at"][:10]) for r in ledger
+            if r.get("first_seen_at") and r["date"] < start <= r["first_seen_at"][:10] <= end]
+    late.sort(key=decision_order, reverse=True)
+    # Every recorded decision the country-level data has not caught up with,
+    # not only those in this edition's window.
+    through = research.get("data_through") or ""
+    pending = sum(r["tally"] is not None and through < r["date"] <= end
+                  for r in decisions.get("records", []))
+    # A digest needs breadth and substance: no daily briefings or credential
+    # notices, events ahead of later routine items, at most two from a source,
+    # and one report per issue.
+    candidates = [i for i in pulse.get("items", [])
+                  if "/blog/" not in i["url"] and start <= i["published_at"][:10] <= end
+                  and not is_routine(i["title"])]
+    candidates.sort(key=lambda i: (headline_priority(i, now), i["published_at"], i["url"]), reverse=True)
+    headlines, used_issues, per_source = [], set(), {}
+    for item in candidates:
         issues = set(item.get("issues", []))
-        if issues & used_issues:
+        if issues & used_issues or per_source.get(item["source"], 0) >= 2:
             continue
         headlines.append({k: item[k] for k in ("title", "url", "source", "published_at")})
         used_issues.update(issues)
+        per_source[item["source"]] = per_source.get(item["source"], 0) + 1
         if len(headlines) == 4:
             break
     return {"window_start": start, "window_end": end, "decisions": records,
+            **({"late_decisions": late} if late else {}),
             "recorded_count": recorded, "without_vote_count": len(records) - recorded,
+            "pending_rollcalls": pending if through else None,
             "decision_data_through": decisions.get("data_through"),
             "rollcall_data_through": research.get("data_through"),
             "research_period": research.get("period"),

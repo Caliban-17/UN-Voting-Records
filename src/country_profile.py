@@ -51,11 +51,14 @@ _AGREEMENT_LOOKUP: dict[tuple[float, float], float] = {
 
 def _vote_totals(df_country: pd.DataFrame) -> dict[str, int]:
     counts = df_country["vote"].value_counts(dropna=True).to_dict()
+    yes, no, abstain = (int(counts.get(v, 0)) for v in (1, -1, 0))
     return {
-        "votes_cast": int(len(df_country)),
-        "yes": int(counts.get(1, 0)),
-        "no": int(counts.get(-1, 0)),
-        "abstain": int(counts.get(0, 0)),
+        # A row with no vote is an absence, not a vote cast.
+        "votes_cast": yes + no + abstain,
+        "yes": yes,
+        "no": no,
+        "abstain": abstain,
+        "absent": int(len(df_country)) - (yes + no + abstain),
     }
 
 

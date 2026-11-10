@@ -131,3 +131,13 @@ def test_bloc_reference_includes_all_three_blocs():
     assert set(BLOC_REFERENCE.keys()) == {"Western", "Eastern", "Non-aligned"}
     for members in BLOC_REFERENCE.values():
         assert all(isinstance(m, str) and len(m) == 3 for m in members)
+
+
+def test_votes_cast_excludes_absences():
+    import pandas as pd
+
+    from src.country_profile import _vote_totals
+
+    rows = pd.DataFrame({"vote": [1, 1, -1, 0, None, None, None]})
+    assert _vote_totals(rows) == {"votes_cast": 4, "yes": 2, "no": 1, "abstain": 1, "absent": 3}
+    assert _vote_totals(pd.DataFrame({"vote": [None, None]}))["votes_cast"] == 0

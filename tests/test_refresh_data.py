@@ -43,7 +43,8 @@ def test_quarantined_roll_calls_are_reported_and_the_rest_still_merge(tmp_path, 
                            "ms_vote": "N", "date": "2026-09-17", "resolution": "A/RES/81/1"}])
     seen = {}
 
-    def fetch(since_date, existing_df, quarantined):
+    def fetch(since_date, existing_df, quarantined, backfill_from=None):
+        seen["backfill_from"] = backfill_from
         quarantined.append({"symbol": "A/RES/81/2", "date": "2026-09-18",
                             "reason": "58 A names against a published tally of 59"})
         seen["quarantined"] = quarantined
@@ -59,6 +60,8 @@ def test_quarantined_roll_calls_are_reported_and_the_rest_still_merge(tmp_path, 
     delta = refresh_data._run(90, dry_run=True, output=None)
 
     assert delta == 1
+    # Roll calls missing from the record are looked for 400 days behind its newest vote.
+    assert seen["backfill_from"] == "2025-05-27"
     assert printed == ["::warning title=Quarantined roll call::A/RES/81/2: "
                        "58 A names against a published tally of 59"]
 
@@ -79,3 +82,62 @@ def test_compose_runs_the_refresh_as_its_own_service():
     assert "./data:/app/data" in refresher["volumes"]
     # The image's HEALTHCHECK probes the web port, which the refresher lacks.
     assert refresher["healthcheck"] == {"disable": True}
+
+
+def _record(vote="Y", yes=2):
+    return pd.DataFrame([
+        {"undl_id": 2000000001, "ms_code": "USA", "ms_name": "UNITED STATES", "ms_vote": vote,
+         "date": "2026-06-23", "resolution": "A/RES/80/268", "total_yes": yes, "total_no": 0, "total_abstentions": 0},
+        {"undl_id": 2000000001, "ms_code": "CUB", "ms_name": "CUBA", "ms_vote": " ",
+         "date": "2026-06-23", "resolution": "A/RES/80/268", "total_yes": yes, "total_no": 0, "total_abstentions": 0},
+    ])
+
+
+def test_a_corrected_vote_is_counted_though_no_row_is_added(tmp_path):
+    existing = _record()
+    # What the record looks like after a trip through the CSV on disk.
+    existing.to_csv(tmp_path / "votes.csv", index=False)
+    on_disk = pd.read_csv(tmp_path / "votes.csv", low_memory=False)
+    assert refresh_data._corrections(on_disk, _record(), [2000000001]) == (0, [])
+    count, symbols = refresh_data._corrections(on_disk, _record(vote="A"), [2000000001])
+    assert (count, symbols) == (1, ["A/RES/80/268"])
+    # A corrected tally touches every row of the roll call.
+    assert refresh_data._corrections(on_disk, _record(yes=3), [2000000001])[0] == 2
+    # Rows the fetch did not touch are not compared.
+    assert refresh_data._corrections(on_disk, _record(vote="A"), [999]) == (0, [])
+
+
+def _stub_refresh(monkeypatch, tmp_path, existing, fetched):
+    source = tmp_path / "votes.csv"
+    existing.to_csv(source, index=False)
+    monkeypatch.setattr(refresh_data, "UN_VOTES_CSV_PATH", source)
+    monkeypatch.setattr(refresh_data, "fetch_recent_votes_github",
+                        lambda since_date, existing_df, quarantined, backfill_from=None: fetched)
+    monkeypatch.chdir(tmp_path)
+    return source
+
+
+def test_an_unchanged_refetch_writes_nothing(tmp_path, monkeypatch):
+    source = _stub_refresh(monkeypatch, tmp_path, _record(), _record())
+    before = source.stat().st_mtime_ns
+    assert refresh_data._run(90, dry_run=False, output=None, promote=True) == 0
+    assert source.stat().st_mtime_ns == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["votes.csv"]
+
+
+def test_a_correction_is_promoted_and_reported_for_release(tmp_path, monkeypatch):
+    import json
+
+    source = _stub_refresh(monkeypatch, tmp_path, _record(), _record(vote="A"))
+    assert refresh_data._run(90, dry_run=False, output=None, promote=True) == 0
+    promoted = pd.read_csv(source)
+    assert promoted.loc[promoted.ms_code == "USA", "ms_vote"].tolist() == ["A"]
+    result = json.loads((tmp_path / ".github" / "atlas-out" / "refresh-result.json").read_text())
+    assert result["delta"] == 0 and result["corrected"] == 1
+    assert result["corrected_resolutions"] == ["A/RES/80/268"]
+
+
+def test_release_is_cut_for_corrections_as_well_as_new_rows():
+    text = Path(".github/workflows/refresh-data.yml").read_text()
+    assert '[ "$DELTA" -gt 0 ] || [ "$CORRECTED" -gt 0 ]' in text
+    assert "Auto-refresh via MARC-XML" not in text

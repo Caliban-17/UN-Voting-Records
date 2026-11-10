@@ -20,6 +20,7 @@ which is why six in seven recorded votes since 2015 fall in that one month.
 
 from __future__ import annotations
 
+import calendar
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -30,7 +31,7 @@ from src.story_analysis import RECURRING_VOTES, recurring_vote_series, resolutio
 # (start month-day, end month-day, key, label, note, what to expect)
 PHASES: list[tuple[tuple[int, int], tuple[int, int], str, str, str, list[str]]] = [
     (
-        (1, 1), (2, 28), "recess", "Recess",
+        (1, 1), (2, 29), "recess", "Recess",
         "The main part of the session closed in December. Plenary votes are rare "
         "until spring, though an emergency special session can be convened at any time.",
         ["An emergency special session on Gaza or Ukraine, if one is called"],
@@ -49,8 +50,9 @@ PHASES: list[tuple[tuple[int, int], tuple[int, int], str, str, str, list[str]]] 
     ),
     (
         (9, 1), (9, 14), "opening", "Session opening",
-        "The new session opens on the third Tuesday of September and the general "
-        "debate follows. Recorded votes before October are unusual.",
+        "The new session opens on the Tuesday of September's second working week "
+        "(the third until 2022) and the general debate follows. Recorded votes "
+        "before October are unusual.",
         ["The opening plenary and any high-level meetings"],
     ),
     (
@@ -110,9 +112,23 @@ def session_phase(day: date) -> dict:
 
 
 def _as_timestamp(as_of: Optional[str | date | datetime]) -> pd.Timestamp:
-    if as_of is None:
-        return pd.Timestamp.utcnow().tz_localize(None).normalize()
-    return pd.Timestamp(as_of).normalize()
+    """``as_of`` (default now) as a timezone-naive UTC midnight, the form the
+    record's dates take; a zone-aware value must not raise on comparison."""
+    try:
+        stamp = pd.Timestamp.now(tz="UTC") if as_of is None else pd.Timestamp(as_of)
+    except (ValueError, TypeError, OverflowError):
+        stamp = pd.NaT
+    if pd.isna(stamp) or not 1946 <= stamp.year <= 2200:
+        raise ValueError("as_of is not a date")
+    if stamp.tzinfo is not None:
+        stamp = stamp.tz_convert("UTC").tz_localize(None)
+    return stamp.normalize()
+
+
+def _on(year: int, month: int, day: int) -> pd.Timestamp:
+    if (month, day) == (2, 29) and not calendar.isleap(year):
+        day = 28
+    return pd.Timestamp(year=year, month=month, day=day)
 
 
 def upcoming_recurring_votes(
@@ -123,8 +139,8 @@ def upcoming_recurring_votes(
 ) -> list[dict]:
     """Recurring resolutions whose typical date falls within ``horizon_days``
     of ``as_of`` and which have not yet been voted on this year, soonest
-    first. The typical date is the median calendar day of the last
-    ``lookback`` votes."""
+    first. The typical date is the median calendar date (month and day, so a
+    leap year does not shift it) of the last ``lookback`` votes."""
     today = _as_timestamp(as_of)
     res = resolutions_table(df).set_index("rcid")
     dates_by_rcid = pd.to_datetime(res["date"], errors="coerce")
@@ -134,23 +150,23 @@ def upcoming_recurring_votes(
         if not series:
             continue
         recent = series[-lookback:]
-        days = sorted(
-            int(dates_by_rcid.get(s["rcid"]).dayofyear)
+        marks = sorted(
+            (dates_by_rcid.get(s["rcid"]).month, dates_by_rcid.get(s["rcid"]).day)
             for s in recent
             if s["rcid"] in dates_by_rcid.index and pd.notna(dates_by_rcid.get(s["rcid"]))
         )
-        if not days:
+        if not marks:
             continue
-        median_doy = days[len(days) // 2]
+        month, day = marks[len(marks) // 2]
         already_this_year = any(
             s["year"] == today.year and dates_by_rcid.get(s["rcid"]) is not None
             and dates_by_rcid.get(s["rcid"]) <= today
             for s in series
         )
         year = today.year + (1 if already_this_year else 0)
-        expected = pd.Timestamp(year=year, month=1, day=1) + pd.Timedelta(days=median_doy - 1)
+        expected = _on(year, month, day)
         if expected < today:
-            expected = pd.Timestamp(year=year + 1, month=1, day=1) + pd.Timedelta(days=median_doy - 1)
+            expected = _on(year + 1, month, day)
         days_until = int((expected - today).days)
         if days_until > horizon_days:
             continue
@@ -247,7 +263,8 @@ def landed_recurring_votes(
     days: int = 21,
 ) -> list[dict]:
     """Recurring resolutions voted on within the last ``days`` before
-    ``as_of`` this year, with the tally compared to last year's. ``moved`` is
+    ``as_of`` (a late-December vote still counts in early January), with the
+    tally compared to the year before's. ``moved`` is
     true when the count in favour shifted by five or more, the count against
     by three or more, or the abstentions by five or more."""
     today = _as_timestamp(as_of)
@@ -257,11 +274,14 @@ def landed_recurring_votes(
     for key, spec in RECURRING_VOTES.items():
         series = recurring_vote_series(df, key)["series"]
         by_year = {s["year"]: s for s in series}
-        this = by_year.get(today.year)
-        if not this:
-            continue
-        when = dates_by_rcid.get(this["rcid"])
-        if when is None or pd.isna(when) or when > today or (today - when).days > days:
+        this = when = None
+        for year in (today.year, today.year - 1):
+            entry = by_year.get(year)
+            seen = dates_by_rcid.get(entry["rcid"]) if entry else None
+            if seen is not None and pd.notna(seen) and seen <= today and (today - seen).days <= days:
+                this, when = entry, seen
+                break
+        if this is None:
             continue
         item = {
             "key": key,
@@ -273,7 +293,7 @@ def landed_recurring_votes(
             "moved": False,
             "change": "",
         }
-        prev = by_year.get(today.year - 1)
+        prev = by_year.get(this["year"] - 1)
         if prev:
             item["last_year"] = {"yes": prev["yes"], "no": prev["no"], "abstain": prev["abstain"]}
             dy, dn, da = this["yes"] - prev["yes"], this["no"] - prev["no"], this["abstain"] - prev["abstain"]

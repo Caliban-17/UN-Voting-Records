@@ -17,6 +17,8 @@ from flask import (
     send_file,
 )
 
+from werkzeug.exceptions import HTTPException
+
 from app.services import (
     country_names,
     data_freshness,
@@ -56,7 +58,48 @@ def make_error(message: str, status: int = 400):
     return jsonify({"error": message}), status
 
 
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _raised_in_project(err: BaseException, folder: str | None = None) -> bool:
+    """Whether ``err`` was raised by this project's own Python code (optionally
+    by code under ``folder``) rather than inside an installed library."""
+    tb = err.__traceback__
+    if tb is None:
+        return False
+    while tb.tb_next is not None:
+        tb = tb.tb_next
+    try:
+        parts = Path(tb.tb_frame.f_code.co_filename).resolve().relative_to(_PROJECT_ROOT).parts
+    except ValueError:
+        return False
+    if "site-packages" in parts or parts[:1] in (("venv",), (".venv",)):
+        return False
+    return folder is None or parts[:1] == (folder,)
+
+
+def reject_value_error(err: Exception, status: int = 400):
+    """Answer a ValueError a handler caught. Raised by this project's own code
+    it is a message for the caller (bad year range, unknown country). Raised
+    inside a library (pandas, numpy, Plotly) its text describes internals, so
+    it is logged and the caller gets a generic 500."""
+    if _raised_in_project(err):
+        return make_error(str(err), status)
+    logger.error("Library error reached a handler: %s", err,
+                 exc_info=(type(err), err, err.__traceback__))
+    return make_error("Internal server error", 500)
+
+
 def make_server_error(label: str, err: Exception):
+    if isinstance(err, HTTPException):
+        # 413 for an oversized body, 400 for unparseable JSON: raised by
+        # request.get_json() inside a handler's catch-all.
+        return make_error(err.name, err.code or 500)
+    if isinstance(err, (TypeError, AttributeError, OverflowError)) and _raised_in_project(err, "app"):
+        # Raised by the handler's own reading of the request (int(None), .get
+        # on a list, .lower() on a number): the body has the wrong shape.
+        logger.warning("%s: malformed request: %s", label, err, exc_info=True)
+        return make_error("Malformed request: a field has the wrong type", 400)
     logger.error("%s: %s", label, err, exc_info=True)
     return make_error("Internal server error", 500)
 
@@ -363,7 +406,7 @@ def get_insights():
             }
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Insights error", exc)
 
@@ -391,7 +434,7 @@ def country_profile(code: str):
         )
         return jsonify(profile)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Country profile error", exc)
 
@@ -437,7 +480,7 @@ def country_alignment_map(code: str):
             ),
         })
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Alignment map error", exc)
 
@@ -512,7 +555,7 @@ def alignment_drift():
             }
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Drift endpoint error", exc)
 
@@ -607,13 +650,14 @@ def newsletter_weekly():
         payload = edition_to_dict(edition)
         payload["markdown"] = render_markdown(edition)
         payload["meta"] = get_method_metadata(
-            edition.baseline_window["start"],
+            # The live edition has no baseline window.
+            edition.baseline_window.get("start", edition.recent_year),
             edition.recent_year,
             context={"analysis": "newsletter_weekly", "topics": list(watched)},
         )
         return jsonify(payload)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Newsletter endpoint error", exc)
 
@@ -690,7 +734,7 @@ def newsletter_archive_save():
             "written": written,
         })
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Archive save error", exc)
 
@@ -711,6 +755,9 @@ def newsletter_retrospective():
         return make_error("format must be one of: json, markdown, text", 400)
     try:
         year_int = int(year) if year else None
+    except ValueError:
+        return make_error("year must be an integer", 400)
+    try:
         report = retrospective_drift_count(year=year_int)
 
         # Names are best-effort: the retrospective reads the archive, not the
@@ -741,8 +788,8 @@ def newsletter_retrospective():
             context={"analysis": "newsletter_retrospective", "year": year_int},
         )
         return jsonify(report)
-    except ValueError:
-        return make_error("year must be an integer", 400)
+    except ValueError as exc:
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Retrospective error", exc)
 
@@ -823,7 +870,7 @@ def alignment_drift_digest():
             }
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Drift digest error", exc)
 
@@ -853,7 +900,7 @@ def coalition():
         )
         return jsonify(report)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Coalition endpoint error", exc)
 
@@ -901,6 +948,6 @@ def export_report():
             headers={"Content-Disposition": f"attachment; filename={filename_base}.md"},
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Report export error", exc)

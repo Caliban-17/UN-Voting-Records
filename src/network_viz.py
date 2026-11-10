@@ -138,9 +138,9 @@ def plot_network_interactive(
             color=node_color,
             colorbar=dict(
                 thickness=15,
-                title=color_by.replace("_", " ").title(),
+                # title.side, not the titleside shorthand Plotly 6 removed.
+                title=dict(text=color_by.replace("_", " ").title(), side="right"),
                 xanchor="left",
-                titleside="right",
             ),
             line_width=1,
             line_color="rgba(255,255,255,0.55)",
@@ -153,8 +153,7 @@ def plot_network_interactive(
     fig = go.Figure(
         data=[edge_trace, node_trace],
         layout=go.Layout(
-            title=title,
-            titlefont_size=16,
+            title=dict(text=title, font=dict(size=16)),
             showlegend=False,
             hovermode="closest",
             margin=dict(b=0, l=0, r=0, t=40),

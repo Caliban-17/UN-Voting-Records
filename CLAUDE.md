@@ -14,7 +14,14 @@ come from `src/un_decisions.py`, separate from complete country roll calls; neve
 country votes from aggregate tallies. The web process never refreshes or promotes the
 voting CSV: `refresh-data.yml` does that daily, and self-hosted deployments run the compose
 `un-voting-refresher` service; the worker only reloads a promoted CSV (and clears request
-caches). A roll call whose names disagree with its tally is quarantined, not imported.
+caches). A roll call whose names disagree with its tally is quarantined, not imported;
+each refresh also backfills roll calls from the last 400 days that the CSV lacks, because
+upstream publishes out of order, and a data release is cut for corrected rows as well as
+new ones. Extract rows (`rcid >= config.SYNTHETIC_ID_BASE`) carry different subject terms,
+so `resolutions_table` gives a recurring resolution the theme of its latest library vote.
+The decisions ledger records when a symbol first appeared, so a resolution registered
+late is listed ("Registered late") instead of never reaching an edition. Newsletter
+headlines skip routine notices (`pulse.ROUTINE`) and rank events first.
 The live edition's `content_hash` covers decisions and research only; headlines, like
 the calendar, are context outside the hash (`EDITION_CONTEXT_KEYS`).
 The existing interactive atlas is at `/atlas`. Quantitative findings come from
@@ -134,13 +141,20 @@ docs/                      Older planning/summary docs; may be stale
   (ISO-3 → display name, cached per process), `normalize_country_code()`,
   `validate_year_range()`, the background job store, and LRU registries for
   expensive payloads.
-- `app/middleware.py`: a per-(client, method, path) sliding-window rate limit
-  on `/api/*`, a `with_analysis_slot` semaphore for heavy analyses (returns
-  429 when busy), and a strict Content-Security-Policy. If you add a new CDN
+- `app/middleware.py`: a per-(client, method, route) sliding-window rate limit
+  on `/api/*` (keyed on the route pattern, and on the socket address unless
+  `TRUSTED_PROXY_COUNT` says a proxy of ours sets `X-Forwarded-For`), a
+  `with_analysis_slot` semaphore for heavy analyses (returns 429 when busy),
+  and a strict Content-Security-Policy. If you add a new CDN
   or inline script, update the CSP or it will be silently blocked.
 - Routes follow one shape: validate input → `make_error(msg, 400)` on bad
-  input → call a `src/` function → `jsonify`. Unexpected exceptions go through
-  `make_server_error()` which logs the traceback and returns a generic 500.
+  input → call a `src/` function → `jsonify`. Read optional numbers with
+  `services.int_field` / `float_field` (null, lists and NaN become a 400).
+  A caught `ValueError` goes through `reject_value_error(exc)`: our own
+  messages reach the caller as a 400, a library's (pandas, Plotly) are logged
+  and answered with a generic 500. Everything else goes through
+  `make_server_error()`, which logs the traceback and returns a generic 500
+  (or the right 4xx for an oversized or wrong-typed body).
 - The frontend keeps a single `state` object, fetches `/api/countries` once
   at startup, and decodes ISO-3 codes with `nameFor(code)`. All Plotly traces
   take colours from the `PALETTE` constant (colour-blind safe); do not
@@ -286,6 +300,13 @@ flake8 app src web_app.py scripts   # CI lint gate; keep it at zero
 ## Definitions the Big Picture relies on
 
 - Recorded (roll-call) votes only; consensus adoptions are absent by construction.
+- A calendar year is complete only once the record reaches its December plenaries
+  (`story_analysis.YEAR_COMPLETE_FROM`, 15 December). A vote count cannot tell: 2025 and
+  2026 passed twenty recorded votes by July. The Big Picture, the lens layer and the
+  research brief all use this rule; an incomplete final year is never plotted as a year
+  or compared with whole years (the brief compares the same calendar dates instead).
+- `resolutions_table(df)` is cached and shared between request threads. Never assign to
+  it or sort it in place: one in-place column caused intermittent 500s under load.
 - "Taking a side" = voting Yes or No. Agreement = share of shared side-takings
   that matched. Divided vote = winning side under 90% of Yes+No; contested =
   under two-thirds (the Charter test, rarely failed, reported not charted).

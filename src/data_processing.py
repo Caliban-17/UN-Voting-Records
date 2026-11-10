@@ -111,7 +111,14 @@ def _load_and_preprocess_data_impl(file_path, use_cache=True):
     try:
         parquet_path = file_path.rsplit(".", 1)[0] + ".parquet"
 
-        if use_cache and os.path.exists(parquet_path):
+        cache_is_stale = (
+            os.path.exists(parquet_path) and os.path.exists(file_path)
+            and os.path.getmtime(file_path) > os.path.getmtime(parquet_path)
+        )
+        if cache_is_stale:
+            # A CSV swapped in by hand must not be shadowed by the old cache.
+            logger.warning("Parquet cache is older than %s; rebuilding from CSV.", file_path)
+        if use_cache and os.path.exists(parquet_path) and not cache_is_stale:
             logger.info("Loading cached data from: %s", parquet_path)
             try:
                 df = pd.read_parquet(parquet_path)

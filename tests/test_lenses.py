@@ -15,6 +15,7 @@ from src import story_analysis as S
 def _small_years_count(monkeypatch):
     monkeypatch.setattr(S, "INCOMPLETE_YEAR_MIN_VOTES", 0)
     monkeypatch.setattr(S, "FULL_YEAR_MIN_VOTES", 0)
+    monkeypatch.setattr(S, "YEAR_COMPLETE_FROM", (1, 1))
 
 
 # ── partitions ───────────────────────────────────────────────────────────────
@@ -258,3 +259,26 @@ def test_lenses_endpoint_reads_the_record(client):
     assert loyalty["result"]["USA"]["with"] < 0.2            # NATO allies did not (8%)
     lead = next(t for t in card["tests"] if t["key"] == "alignment_before_treaty")
     assert lead["result"]["median_lead"] >= 5                # alignment preceded NATO accession
+
+
+def test_unique_variance_compares_the_same_members_on_both_sides(monkeypatch):
+    """Regime type is missing for about twenty members. Scoring "without
+    regime" on everyone and "with regime" on the rest made its unique share a
+    difference between country sets (about four times too large)."""
+    from src import lenses_scorecard as SC
+
+    seen = []
+
+    def labels(codes, year, factors):
+        covered = codes if "democracy" not in factors else codes[:-1]   # one member has no regime label
+        return {c: "x" for c in covered}
+
+    def record(matrix, labels, permutations, seed=0):
+        seen.append(set(labels))
+        return {"adjusted": 0.5}
+
+    monkeypatch.setattr(SC, "_cross_labels", labels)
+    monkeypatch.setattr(SC, "adjusted_explained_variance", record)
+    SC.unique_variance(_frame(), [1986])
+    assert len(seen) == 1 + len(SC.FACTORS)
+    assert all(s == seen[0] for s in seen), "every partition must cover the same members"

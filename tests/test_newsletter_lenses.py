@@ -16,6 +16,7 @@ from tests.test_newsletter_roundtrip import _edition
 def _small_years_count(monkeypatch):
     monkeypatch.setattr(S, "INCOMPLETE_YEAR_MIN_VOTES", 0)
     monkeypatch.setattr(S, "FULL_YEAR_MIN_VOTES", 0)
+    monkeypatch.setattr(S, "YEAR_COMPLETE_FROM", (1, 1))
 
 
 def _sample_panel() -> dict:

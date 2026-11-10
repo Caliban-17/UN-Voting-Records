@@ -62,8 +62,9 @@ class DivergenceDetector:
             # (1, 1), (-1, -1), (0, 0) = high similarity
             # (1, -1) = low similarity
             if pd.isna(vote_a) or pd.isna(vote_b):
-                local_sim = 0.0
-            elif vote_a == vote_b:
+                # An absence is not a position: it cannot be a divergence.
+                continue
+            if vote_a == vote_b:
                 local_sim = 1.0
             elif (vote_a == 1 and vote_b == -1) or (vote_a == -1 and vote_b == 1):
                 local_sim = 0.0  # Opposite votes
@@ -266,7 +267,10 @@ class DivergenceDetector:
                         }
                     )
 
-        df = pd.DataFrame(deltas)
+        # An empty period (no shared pairs) is an empty result, not a KeyError.
+        df = pd.DataFrame(
+            deltas, columns=["country_a", "country_b", "sim_before", "sim_after", "delta"]
+        )
         df = df.sort_values(
             "delta", ascending=True
         )  # Most negative = biggest divergence
@@ -327,6 +331,9 @@ class DivergenceDetector:
         for country in cluster:
             # Calculate average similarity to rest of cluster
             similarities = []
+            # A member with no votes in the window is not in the matrix.
+            if country not in self.similarity_matrix.index:
+                continue
             for other in cluster:
                 if country != other and other in self.similarity_matrix.columns:
                     similarities.append(self.similarity_matrix.loc[country, other])

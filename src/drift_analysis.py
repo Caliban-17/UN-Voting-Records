@@ -147,12 +147,21 @@ def _topic_breakdown(
     country_b: str,
     max_topics: int = 3,
     min_recent_disagreements: int = 1,
+    converging: bool = False,
 ) -> list[dict]:
     """
-    Return topics where (a, b) *newly* disagree most — i.e. their per-topic
-    disagreement rate rose the most between baseline and recent. This is
-    much more interpretable than "topics they disagree on now," because
-    chronic-disagreement topics are filtered out automatically.
+    Return the topics that moved the pair. For a divergence: topics where
+    (a, b) *newly* disagree most — their per-topic disagreement rate rose the
+    most between baseline and recent. For a convergence (``converging``): the
+    topics where it *fell* the most, i.e. where they have started to agree.
+    Either is more interpretable than "topics they disagree on now," because
+    chronic topics are filtered out automatically.
+
+    A topic the pair never voted on in the baseline has no rate of its own
+    there. It is measured against the pair's overall baseline disagreement
+    rate (what one would expect of a new vote between them), not against 0%:
+    reading it as 0% turned any single new disagreement into a 0→100% "driver",
+    even for a pair that was converging.
     """
     topic_col = "primary_topic"
     if topic_col not in df_recent.columns:
@@ -165,20 +174,29 @@ def _topic_breakdown(
     if not recent:
         return []
 
+    shared_baseline = sum(total for _, total in baseline.values())
+    expected = (
+        sum(disagree for disagree, _ in baseline.values()) / shared_baseline
+        if shared_baseline else None
+    )
     results: list[dict] = []
     for topic, (r_disagree, r_total) in recent.items():
-        if r_disagree < min_recent_disagreements:
-            continue
-        r_rate = r_disagree / max(1, r_total)
         b_disagree, b_total = baseline.get(topic, (0, 0))
-        b_rate = b_disagree / b_total if b_total else 0.0
-        delta = r_rate - b_rate
+        if not r_total or (not b_total and expected is None):
+            continue
+        # Votes in the recent period that went the way the pair moved.
+        moved = (r_total - r_disagree) if converging else r_disagree
+        if moved < min_recent_disagreements:
+            continue
+        r_rate = r_disagree / r_total
+        b_rate = b_disagree / b_total if b_total else expected
+        delta = (b_rate - r_rate) if converging else (r_rate - b_rate)
         if delta <= 0:
             continue
         results.append(
             {
                 "topic": _humanize_topic(topic),
-                "count": r_disagree,
+                "count": moved,
                 "recent_rate": float(r_rate),
                 "baseline_rate": float(b_rate),
                 "delta_rate": float(delta),
@@ -275,7 +293,8 @@ def find_alignment_drifts(
     # Attach topic-level interpretation for each drift (the "on what?" half).
     for drift in drifts:
         drift["driving_topics"] = _topic_breakdown(
-            df_base, df_recent, drift["country_a"], drift["country_b"]
+            df_base, df_recent, drift["country_a"], drift["country_b"],
+            converging=drift["delta"] > 0,
         )
 
     return drifts

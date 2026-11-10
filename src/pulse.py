@@ -31,33 +31,107 @@ SOURCES = (
     {"id": "geneva", "name": "UN Geneva", "url": "https://www.ungeneva.org/news-media/press-items-list/rss.xml", "scope": "Rights & Geneva briefings"},
     {"id": "who", "name": "WHO", "url": "https://www.who.int/rss-feeds/news-english.xml", "scope": "Global health"},
 )
+# Keyword rules, checked against a month of real items (405 articles, November
+# 2026). Each exclusion below removed a measured false match: "war on nature",
+# the "Committee on Economic, Social and Cultural Rights", the Cuba embargo's
+# "economic, commercial and financial", "recent developments in", the
+# "International Court of Justice", national elections and "electricity".
+# "Secretary-General" alone says nothing about the subject and is not a rule.
 TOPICS = {
-    "Peace & security": r"\b(war|conflict|ceasefire|security council|peacekeep\w*|disarmament|nuclear|missile\w*|terroris\w*)\b",
-    "Humanitarian": r"\b(humanitarian|aid|famine|hunger|displac\w*|refugee\w*|relief|food insecurity)\b",
-    "Human rights": r"\b(rights|torture|discrimination|racism|women|gender|detention|justice)\b",
-    # WHO is matched case-sensitively: the pronoun "who" is not a health story.
-    "Health": r"\b(health|(?-i:WHO)|disease|pandemic|epidemic|vaccine\w*|cholera|mpox|ebola)\b",
-    "Climate & development": r"\b(climate|environment\w*|emission\w*|biodiversity|development|poverty|econom\w*|trade|education|sustainable|sdgs)\b",
-    "UN affairs": r"\b(budget|reform|appoint\w*|elect\w*|secretary.general|general assembly|funding|financ\w*|contribution\w*)\b",
+    "Peace & security": (
+        r"\b(wars?(?! on (nature|drugs|plastic|waste))|warfare|conflicts?|ceasefire|security council|"
+        r"peacekeep\w*|disarmament|nuclear|missile\w*|terroris\w*|attack\w*|drones?|airstrike\w*|"
+        r"strikes? (on|kill|hit)|shelling|bomb\w*|hostilit\w*|armed (group|forces|conflict)\w*|"
+        r"militar\w+|troops|invasion|killed|killing\w*|violence)\b"
+    ),
+    "Humanitarian": (
+        r"\b(humanitarian|famine|hunger|starv\w*|malnutrition|displac\w*|refugees?|migrants?|"
+        r"relief|food insecurity|aid (workers?|deliver\w*|convoy\w*|agenc\w*|access)|lifesaving aid|"
+        r"floods?|flooding|earthquake\w*|cyclone\w*|hurricane\w*|shelter\w*|shipwreck\w*)\b"
+    ),
+    "Human rights": (
+        r"\b(human rights|rights (council|committee|experts?|chief|office|officials?|body|defenders?|violations?)|"
+        r"(cultural|political|children'?s|women'?s|indigenous) rights|rights of (the )?\w+|"
+        r"torture|discrimination|racism|women|gender|detention|detained|arbitrar\w+|"
+        r"freedom of (expression|the press|religion|assembly)|journalists?|accountability|impunity|"
+        r"war crimes?|genocide)\b"
+    ),
+    # WHO, HIV and AIDS are matched case-sensitively: "who" is a pronoun, "aids" a verb.
+    "Health": (
+        r"\b(health|(?-i:WHO|HIV|AIDS)|diseases?|pandemic|epidemic|vaccin\w*|cholera|mpox|ebola|"
+        r"malaria|tuberculosis|measles|polio)\b"
+    ),
+    "Climate & development": (
+        r"\b(climate|environment\w*|emissions?|biodiversity|carbon|drought\w*|deforestation|"
+        r"(extreme|record|global) (temperatures?|heat)|global warming|heatwaves?|"
+        r"sustainable development|development (goals?|financ\w+|cooperation|agenda|bank|aid)|"
+        r"financing for development|developing countr\w+|least developed|poverty|"
+        r"econom(y|ies|ic growth|ic recovery|ic crisis|ic outlook)|trade|education|sdgs?)\b"
+    ),
+    "UN affairs": (
+        r"\b(budget\w*|reform\w*|appoint\w*|elects|elected (to|as)|general assembly|"
+        r"(fifth|second|third|fourth|sixth|first) committee|funding|financial (situation|crisis)|"
+        r"assessed contributions?|liquidity|un80|credentials|resident coordinator)\b"
+    ),
 }
+OTHER_TOPIC = "Other"
 # Issue dossiers are deliberately distinct from event deduplication.
 ISSUES = {
-    "Sudan": r"(?<!south )\bsudan\b", "South Sudan": r"\bsouth sudan\b", "Ukraine": r"\bukrain\w*\b",
+    "Sudan": r"(?<!south )\bsudan\b|\b(darfur|el.fasher|khartoum)\b", "South Sudan": r"\bsouth sudan\b",
+    "Ukraine": r"\bukrain\w*\b",
     "Israel & Palestine": r"\b(gaza|palestin\w*|israel\w*|west bank)\b",
     "Haiti": r"\bhaiti\w*\b", "Myanmar": r"\b(myanmar|rohingya)\b",
-    "Afghanistan": r"\bafghan\w*\b", "Yemen": r"\byemen\w*\b",
+    "Afghanistan": r"\bafghan\w*\b", "Yemen": r"\b(yemen\w*|houthi\w*)\b",
     "Syria": r"\bsyri\w*\b", "Lebanon": r"\bleban\w*\b",
-    "DR Congo": r"\b(congo|drc)\b", "Iran": r"\biran\w*\b",
+    "DR Congo": r"\b(congo|drc)\b", "Iran": r"\b(iran\w*|hormuz)\b",
 }
+
+# Notices that are published every day or week and report no event.
+ROUTINE = re.compile(
+    r"\b(daily press briefing|noon briefing|presents? credentials|note to correspondents|"
+    r"media advisory|activities of (the )?secretary-general|approving organization of work|"
+    r"appoints\b.*\b(resident coordinator|representative|envoy|adviser|advisor|head|director|"
+    r"commander|coordinator|secretary|chief))\b", re.I)
+CONSEQUENCE = re.compile(
+    r"\b(adopts?|adopted|veto\w*|ceasefire|famine|emergency|outbreak|cuts|condemn\w*|kill\w*|"
+    r"attack\w*|sanctions?|resolution|treaty|agreement|dies?|dead|deaths?)\b", re.I)
+
+
+def classify(text: str) -> tuple[list[str], list[str]]:
+    """Topic labels and issue dossiers for a title plus summary."""
+    topics = [k for k, pattern in TOPICS.items() if re.search(pattern, text, re.I)]
+    issues = [k for k, pattern in ISSUES.items() if re.search(pattern, text, re.I)]
+    return topics or [OTHER_TOPIC], issues
+
+
+def is_routine(title: str) -> bool:
+    return bool(ROUTINE.search(title))
+
+
+def headline_priority(item: dict, now: datetime) -> float:
+    """Higher first: an event outranks a routine notice published later the
+    same day, and recency decides among equals. UN News stamps every item
+    12:00 UTC, so time of day alone would rank any afternoon press release
+    above all of that day's reporting."""
+    age = max(0, (now - date_value(item["published_at"])).total_seconds() / 3600)
+    return 36 * bool(CONSEQUENCE.search(item["title"])) - 72 * is_routine(item["title"]) - age
 
 
 def stamp(value: datetime) -> str:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+# Zone names RFC 2822 parsers do not know; left alone they are read as UTC.
+ZONES = {"CET": "+0100", "CEST": "+0200", "EET": "+0200", "EEST": "+0300",
+         "WET": "+0000", "WEST": "+0100", "BST": "+0100"}
+
+
 def date_value(value: str | None) -> datetime | None:
     if not value:
         return None
+    zone = re.search(r"\s([A-Z]{3,4})$", value.strip())
+    if zone and zone[1] in ZONES:
+        value = value.strip()[:zone.start()] + " " + ZONES[zone[1]]
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (ValueError, TypeError):
@@ -111,20 +185,22 @@ def parse_feed(body: bytes, source: dict, now: datetime) -> tuple[list[dict], in
         published = date_value(_child(node, {"pubDate", "published", "date"}))
         updated = date_value(_child(node, {"updated"}))
         published = published or updated
-        if not title or not link or not published or published > now + timedelta(minutes=15):
+        # The English feeds occasionally carry an item from another language's
+        # section (UN Geneva's /fr/); it does not belong in an English briefing.
+        other_language = re.match(r"/(fr|es|ru|ar|zh)/", urlsplit(link).path or "")
+        if not title or not link or not published or other_language or published > now + timedelta(minutes=15):
             rejected += 1
             continue
         summary = clean_text(_child(node, {"description", "summary", "content"}))[:600]
         text = title + " " + summary
-        topics = [k for k, pattern in TOPICS.items() if re.search(pattern, text, re.I)]
-        issues = [k for k, pattern in ISSUES.items() if re.search(pattern, text, re.I)]
+        topics, issues = classify(text)
         items.append({
             "id": hashlib.sha256(link.encode()).hexdigest()[:20],
             "title": title, "url": link, "summary": summary,
             "source_id": source["id"], "source": source["name"],
             "published_at": stamp(published),
             "source_updated_at": stamp(updated) if updated and updated <= now + timedelta(minutes=15) else None,
-            "topics": topics or ["UN affairs"], "issues": issues,
+            "topics": topics, "issues": issues,
         })
     return items, rejected
 
@@ -201,6 +277,10 @@ def refresh(directory: Path | None = None, now: datetime | None = None, fetcher=
             changed = prior and any(item.get(k) != prior.get(k) for k in ("title", "summary", "source_updated_at"))
             item["revised_at"] = stamp(now) if changed else (prior.get("revised_at") if prior else None)
             items[item["id"]] = item
+    # Retained items are re-labelled on every pass, so a change to the rules
+    # reaches the whole 30-day window at once instead of only newly fetched items.
+    for item in items.values():
+        item["topics"], item["issues"] = classify(item["title"] + " " + item["summary"])
     ordered = sorted(items.values(), key=lambda i: (i["published_at"], i["id"]), reverse=True)[:2500]
     content_hash = hashlib.sha256(json.dumps(ordered, sort_keys=True).encode()).hexdigest()
     snapshot = {"schema_version": 1, "checked_at": stamp(now), "content_hash": content_hash,
@@ -224,22 +304,26 @@ def briefing(snapshot: dict, now: datetime | None = None, topic: str = "", issue
     recent = [i for i in snapshot["items"] if (date_value(i["published_at"]) or datetime.min.replace(tzinfo=UTC)) >= cutoff]
     matching = [i for i in recent if (not topic or topic in i["topics"]) and (not issue or issue in i["issues"])
                 and (not query or query.casefold() in (i["title"] + " " + i["summary"]).casefold())]
-    # Exact normalised headlines are one update; topical similarity is NOT evidence
-    # that reports describe the same event. Retain every attributed source link.
+    # Exact normalised headlines from DIFFERENT sources within three days are one
+    # update; topical similarity is NOT evidence that reports describe the same
+    # event. A source repeating its own title (each day's "Daily Press Briefing")
+    # is a new item every time. Retain every attributed source link.
     groups = {}
     for item in matching:
         key = re.sub(r"\W+", " ", item["title"].casefold()).strip()
-        if key in groups:
-            groups[key]["also_reported_by"].append({"source": item["source"], "url": item["url"]})
+        lead = groups.get(key)
+        same_story = (
+            lead is not None and lead["source_id"] != item["source_id"]
+            and all(o["source"] != item["source"] for o in lead["also_reported_by"])
+            and abs(date_value(lead["published_at"]) - date_value(item["published_at"])) <= timedelta(days=3)
+        )
+        if same_story:
+            lead["also_reported_by"].append({"source": item["source"], "url": item["url"]})
         else:
-            groups[key] = {**item, "also_reported_by": []}
+            groups[key if lead is None else f"{key} {item['id']}"] = {**item, "also_reported_by": []}
     updates = list(groups.values())
 
-    def priority(item):
-        age = max(0, (now - date_value(item["published_at"])).total_seconds() / 3600)
-        consequence = bool(re.search(r"\b(adopts?|adopted|veto\w*|ceasefire|famine|emergency|outbreak|cuts|appoint\w*)\b", item["title"], re.I))
-        return 36 * consequence - age
-    ranked = sorted(updates, key=priority, reverse=True)
+    ranked = sorted(updates, key=lambda item: headline_priority(item, now), reverse=True)
     # Give the lead five a mix of sources; retain chronological updates below.
     leads, counts = [], {}
     for item in ranked:
@@ -256,7 +340,8 @@ def briefing(snapshot: dict, now: datetime | None = None, topic: str = "", issue
         "checked_at": snapshot.get("checked_at"), "stale": stale,
         "status": "stale" if stale else ("partial" if any(s["status"] != "ok" for s in statuses) else "current"),
         "sources": statuses, "lead": leads, "updates": updates[:100],
-        "topics": [{"name": t, "count": sum(t in i["topics"] for i in recent)} for t in TOPICS],
+        "topics": [{"name": t, "count": sum(t in i["topics"] for i in recent)} for t in TOPICS]
+        + [{"name": OTHER_TOPIC, "count": n} for n in [sum(OTHER_TOPIC in i["topics"] for i in recent)] if n],
         "issues": [{"name": t, "count": sum(t in i["issues"] for i in recent)} for t in ISSUES if any(t in i["issues"] for i in recent)],
         "total": len(updates), "latest_published_at": max((i["published_at"] for i in recent), default=None),
         "methodology": "Automatically collected official feeds. Excerpts are source text; topic labels and headline priority use rules. Last seven days, with 30 days retained. Exact matching headlines are grouped; issue dossiers can contain separate events. Publication dates are not meeting dates. Coverage is limited to the listed feeds.",

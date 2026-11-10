@@ -23,6 +23,7 @@ COUNTRY_DISPLAY_NAMES: dict[str, str] = {
     "USA": "United States",
     "GBR": "United Kingdom",
     "RUS": "Russia",
+    "SUN": "USSR",
     "CHN": "China",
     "FRA": "France",
     # G7 / G20 misc

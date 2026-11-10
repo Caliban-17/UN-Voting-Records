@@ -133,3 +133,37 @@ def test_drift_endpoint_validates_direction(client):
 def test_drift_endpoint_rejects_unknown_recent_year(client):
     response = client.get("/api/drift?recent_year=3000&baseline_window=2")
     assert response.status_code == 400
+
+
+def _pair_frame(baseline, recent):
+    """Rows for AAA and BBB: {topic: [(vote_a, vote_b), ...]} per period."""
+    rows, rcid = [], 0
+    for year, topics in ((2020, baseline), (2021, recent)):
+        for topic, votes in topics.items():
+            for a, b in votes:
+                rcid += 1
+                for code, vote in (("AAA", a), ("BBB", b)):
+                    rows.append({"rcid": rcid, "country_identifier": code, "vote": vote, "year": year,
+                                 "date": f"{year}-06-01", "primary_topic": topic})
+    return pd.DataFrame(rows)
+
+
+def test_a_convergence_is_explained_by_where_the_pair_started_to_agree():
+    from src.drift_analysis import _topic_breakdown
+
+    df = _pair_frame(
+        baseline={"SETTLEMENTS": [(1, -1)] * 4, "BUDGET": [(1, 1)] * 2, "TRADE": [(1, -1)] * 2},
+        recent={"SETTLEMENTS": [(1, 1)] * 3, "BUDGET": [(1, 1)] * 2, "TRADE": [(1, -1)] * 2,
+                "NUCLEAR TESTS": [(1, -1)]},      # one new vote, on which they still disagree
+    )
+    base, recent = df[df.year == 2020], df[df.year == 2021]
+    topics = _topic_breakdown(base, recent, "AAA", "BBB", converging=True)
+    # They converged on settlements. The single new disagreement used to be
+    # reported as the driver, read as a jump from 0% to 100%.
+    assert [t["topic"] for t in topics] == ["Settlements"]
+    assert topics[0]["baseline_rate"] == 1.0 and topics[0]["recent_rate"] == 0.0 and topics[0]["count"] == 3
+    # Read as a divergence, nothing rose except that new topic, and only
+    # relative to the pair's overall baseline rate (6 of 8), not from zero.
+    diverging = _topic_breakdown(base, recent, "AAA", "BBB")
+    assert [t["topic"] for t in diverging] == ["Nuclear tests"]
+    assert diverging[0]["baseline_rate"] == 0.75 and diverging[0]["delta_rate"] == 0.25

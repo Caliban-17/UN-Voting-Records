@@ -9,7 +9,7 @@ import pandas as pd
 from flask import Blueprint, jsonify, request
 
 from app.middleware import with_analysis_slot
-from app.routes.core import make_error, make_server_error
+from app.routes.core import make_error, make_server_error, reject_value_error
 from app.services import (
     get_df,
     validate_year_range,
@@ -104,7 +104,7 @@ def get_network_graph():
         return jsonify(payload)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Network graph error", exc)
 
@@ -121,7 +121,7 @@ def get_pca_plot():
             return make_error("No JSON data provided", 400)
 
         start_year, end_year = validate_year_range(data)
-        projection = data.get("projection", "pca").lower()  # "pca" or "umap"
+        projection = str(data.get("projection") or "pca").lower()  # "pca" or "umap"
         if projection not in {"pca", "umap"}:
             projection = "pca"
 
@@ -187,7 +187,7 @@ def get_pca_plot():
         return jsonify(payload)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Projection error", exc)
 
@@ -294,7 +294,7 @@ def get_issue_timeline():
         return jsonify(payload)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Timeline error", exc)
 
@@ -312,6 +312,6 @@ def get_soft_power_trends():
         start_year, end_year = validate_year_range(data)
         return jsonify(compute_soft_power_trends_payload(start_year, end_year))
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Soft power trends error", exc)

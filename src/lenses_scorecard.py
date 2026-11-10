@@ -105,17 +105,24 @@ def _cross_labels(codes: list[str], year: int, factors: tuple[str, ...]) -> dict
 def unique_variance(df: pd.DataFrame, years: list[int], permutations: int = PERMUTATIONS) -> dict:
     """Per year: adjusted explained variance of the full cross-partition and
     of each leave-one-factor-out cross-partition; a factor's unique share is
-    the difference. Returns the per-year series and decade means."""
+    the difference. Returns the per-year series and decade means.
+
+    Both sides of every difference cover the same members: those with a label
+    on all four factors. Regime type is missing for about twenty members, and
+    scoring "without regime" on everyone made its unique share four times too
+    large (a difference between country sets, not between partitions)."""
     series = {f: [] for f in FACTORS}
     series["all_four"] = []
     for year in years:
         matrix = story._side_matrix(df, [year])
         codes = list(matrix.index)
-        full = adjusted_explained_variance(matrix, _cross_labels(codes, year, FACTORS), permutations, seed=year)["adjusted"]
+        full_labels = _cross_labels(codes, year, FACTORS)
+        full = adjusted_explained_variance(matrix, full_labels, permutations, seed=year)["adjusted"]
         series["all_four"].append(full)
         for f in FACTORS:
             rest = tuple(x for x in FACTORS if x != f)
-            without = adjusted_explained_variance(matrix, _cross_labels(codes, year, rest), permutations, seed=year)["adjusted"]
+            rest_labels = {c: v for c, v in _cross_labels(codes, year, rest).items() if c in full_labels}
+            without = adjusted_explained_variance(matrix, rest_labels, permutations, seed=year)["adjusted"]
             unique = None if full is None or without is None else round(max(0.0, full - without), 4)
             series[f].append(unique)
     decades = {f: _by_decade(list(zip(years, series[f]))) for f in series}
@@ -543,8 +550,9 @@ def colonial_line(df: pd.DataFrame, years: list[int], permutations: int = PERMUT
     for year in years:
         matrix = story._side_matrix(df, [year])
         codes = list(matrix.index)
-        base = _cross_labels(codes, year, ("tier", "alliance"))
         withc = _cross_labels(codes, year, ("tier", "alliance", "colonial"))
+        # Same members on both sides: a few (the USSR, Serbia) have no colonial label.
+        base = {c: v for c, v in _cross_labels(codes, year, ("tier", "alliance")).items() if c in withc}
         a = adjusted_explained_variance(matrix, base, permutations, seed=year)["adjusted"]
         b = adjusted_explained_variance(matrix, withc, permutations, seed=year)["adjusted"]
         unique.append(None if a is None or b is None else round(max(0.0, b - a), 4))

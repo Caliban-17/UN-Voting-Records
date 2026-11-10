@@ -8,7 +8,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from app.routes.core import make_error, make_server_error
+from app.routes.core import make_error, make_server_error, reject_value_error
 from app.services import country_names, get_df, get_year_bounds, normalize_country_code
 from src.cache_utils import cached_api
 from src.story_analysis import (
@@ -64,7 +64,7 @@ def story_alignment():
         payload["anchors_available"] = list(P5)
         return jsonify(payload)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Story alignment error", exc)
 
@@ -100,7 +100,7 @@ def story_scatter():
             )
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Story scatter error", exc)
 
@@ -124,7 +124,7 @@ def story_resolution_map(rcid: int):
     try:
         return jsonify(resolution_vote_map(get_df(), rcid, name_lookup=country_names()))
     except ValueError as exc:
-        return make_error(str(exc), 404)
+        return reject_value_error(exc, 404)
     except Exception as exc:
         return make_server_error("Story resolution map error", exc)
 
@@ -150,7 +150,7 @@ def story_country(code: str):
     try:
         return jsonify(country_story(get_df(), normalize_country_code(code), name_lookup=country_names()))
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Story country error", exc)
 
@@ -165,7 +165,7 @@ def story_this_week():
         as_of = request.args.get("as_of") or None
         return jsonify(recent_votes(get_df(), days=days, name_lookup=country_names(), as_of=as_of))
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Story this-week error", exc)
 
@@ -181,7 +181,7 @@ def story_calendar():
         as_of = request.args.get("as_of") or None
         return jsonify(calendar_for(get_df(), as_of=as_of))
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Story calendar error", exc)
 

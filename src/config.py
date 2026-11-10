@@ -21,6 +21,10 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 # === STANDARDIZED VOTE ENCODING ===
 # This is the single source of truth for vote mapping
+# Record ids at or above this are synthetic: roll calls imported from DGACM's
+# GitHub extracts, which carry no UN Digital Library id.
+SYNTHETIC_ID_BASE = 2_000_000_000
+
 VOTE_ENCODING = {
     "Y": 1,  # Yes
     "N": -1,  # No

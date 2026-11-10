@@ -22,6 +22,8 @@ from typing import Optional
 
 import pandas as pd
 
+from src.regional_groups import LINEAGE
+
 logger = logging.getLogger(__name__)
 
 # Tier thresholds applied to mean signed vote (-1 to +1) on matching resolutions.
@@ -60,6 +62,10 @@ def _matching_resolutions(df: pd.DataFrame, topic_query: str) -> pd.DataFrame:
         haystack = haystack + " " + df[col].fillna("").astype(str).str.lower()
     mask = haystack.str.contains(re.escape(query), na=False)
     return df[mask]
+
+
+# Predecessor state -> the member that continues it (USSR -> Russia).
+_SUCCESSOR = {old: new for new, olds in LINEAGE.items() for old in olds}
 
 
 def _tier_for(mean_vote: float) -> str:
@@ -110,6 +116,26 @@ def build_coalition(
         }
 
     matched_rcids = df_topic["rcid"].nunique()
+
+    # A fresh resolution is voted on by the members of the window's final
+    # year. A predecessor's record is folded into the state that continues it
+    # (the USSR into Russia, once Russia is a member), and a state that no
+    # longer exists by then is listed apart; counted beside their successors
+    # they pushed the "predicted tally" past 193 states.
+    final_year = df_window["year"].max()
+    final_codes = set(df_window.loc[df_window["year"] == final_year, "country_identifier"])
+    fold = {old: new for old, new in _SUCCESSOR.items() if new in final_codes}
+    folded = df_topic["country_identifier"].map(lambda c: fold.get(c, c))
+    df_topic = (
+        df_topic.assign(_folded=folded != df_topic["country_identifier"], country_identifier=folded)
+        .sort_values("_folded", kind="stable")  # the successor's own vote wins on overlap
+        .drop_duplicates(["rcid", "country_identifier"])
+    )
+    former_codes = sorted(set(df_topic["country_identifier"]) - final_codes)
+    former_members = [
+        {"country": str(c), "name": (name_lookup or {}).get(str(c), str(c))} for c in former_codes
+    ]
+    df_topic = df_topic[~df_topic["country_identifier"].isin(former_codes)]
 
     # Per-country aggregation. Mean vote ignores NaN; abstain rate is computed
     # on the votes a country actually cast on these resolutions.
@@ -188,5 +214,6 @@ def build_coalition(
         "predicted_tally": predicted,
         "tiers": tiers,
         "no_history": no_history,
+        "former_members": former_members,
         "sample_resolutions": sample_resolutions,
     }

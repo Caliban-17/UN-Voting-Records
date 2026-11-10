@@ -25,10 +25,26 @@ _rate_lock = threading.RLock()
 _rate_buckets: dict[str, deque] = defaultdict(deque)
 
 
+# Reverse proxies of our own in front of the app. X-Forwarded-For is written
+# by whoever sends the request, so with none (the default) it is ignored: a
+# client could otherwise claim a new address on every request and never be
+# limited. With N proxies, the Nth entry from the right is the one they added.
+TRUSTED_PROXY_COUNT = max(0, int(os.getenv("TRUSTED_PROXY_COUNT", "0")))
+
+
 def _client_fingerprint() -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    remote = forwarded.split(",")[0].strip() if forwarded else ""
-    return remote or request.remote_addr or "unknown"
+    if TRUSTED_PROXY_COUNT:
+        hops = [h.strip() for h in request.headers.get("X-Forwarded-For", "").split(",") if h.strip()]
+        if len(hops) >= TRUSTED_PROXY_COUNT:
+            return hops[-TRUSTED_PROXY_COUNT]
+    return request.remote_addr or "unknown"
+
+
+def _route_key() -> str:
+    """The matched route's pattern, not the raw path: /api/story/resolution/1/map
+    and /2/map are one endpoint and share one bucket, and unknown paths cannot
+    mint a bucket each."""
+    return request.url_rule.rule if request.url_rule is not None else "unmatched"
 
 
 _last_sweep = 0.0
@@ -101,7 +117,7 @@ def register_middleware(app: Flask) -> None:
     def enforce_rate_limits():
         if not request.path.startswith("/api/"):
             return None
-        key = f"{_client_fingerprint()}:{request.method}:{request.path}"
+        key = f"{_client_fingerprint()}:{request.method}:{_route_key()}"
         if _is_rate_limited(key):
             return (
                 jsonify({"error": "Rate limit exceeded. Please wait before retrying."}),

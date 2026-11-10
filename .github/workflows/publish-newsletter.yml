@@ -84,6 +84,7 @@ jobs:
       # first (auto-created by refresh-data.yml on Mondays), fall back to
       # the static ATLAS_DATA_URL secret if no release exists yet.
       - name: Fetch UN voting CSV from latest data release
+        id: fetch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ATLAS_DATA_URL: ${{ secrets.ATLAS_DATA_URL }}
@@ -120,9 +121,12 @@ jobs:
             exit 0
           fi
           echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
+          # Later steps test this output: hashFiles() on the 360 MB CSV can
+          # exceed its 120-second limit and fail the run.
+          echo "have_csv=true" >> "$GITHUB_OUTPUT"
 
       - name: Fail loudly if data is stale
-        if: ${{ hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
+        if: ${{ steps.fetch.outputs.have_csv == 'true' }}
         run: |
           python - <<'PY'
           import sys
@@ -138,7 +142,7 @@ jobs:
           PY
 
       - name: Compose edition
-        if: ${{ hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
+        if: ${{ steps.fetch.outputs.have_csv == 'true' }}
         env:
           RECENT_YEAR: ${{ inputs.recent_year }}
           BASELINE_WINDOW: ${{ inputs.baseline_window }}

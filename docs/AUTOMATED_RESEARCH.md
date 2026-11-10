@@ -87,7 +87,9 @@ Source URLs and areas of coverage are in `src/pulse.py`. The feeds cover public 
 reporting, headquarters meetings, Geneva briefings and health. WHO's feed may carry old
 items; the source-health panel exposes this. There is no access to private negotiations.
 Issue dossiers group related articles, not proven accounts of one event; exact matching
-headlines retain all source links. Keyword topic labels are navigational aids.
+headlines retain all source links. Keyword topic labels are navigational aids: the rules
+were checked against a month of real items, an article no rule matches is labelled
+"Other", and retained articles are re-labelled on every pass.
 
 The live tests confirmed working HTTP/XML responses from all four sources. Upstream
 freshness is assessed separately. New adapters for budgets, mandates, treaty actions or
@@ -110,10 +112,29 @@ recorded results also never create country rows. Full roll calls must arrive thr
 validated voting-data pipeline before entering alignment research. A roll call whose name
 lists disagree with its published tally, or that names a member twice, is quarantined:
 none of its rows are imported, the refresh logs it (and annotates the CI run), and the rest
-of the batch still merges. It is retried on every refresh until upstream corrects it.
+of the batch still merges. The refresh window starts a week before the record's newest vote,
+but DGACM fills its extracts out of order, so every run also takes any roll call from the
+previous 400 days that the record does not yet hold (`BACKFILL_DAYS`). That is what brings a
+quarantined roll call back once upstream corrects it, and what catches a vote published
+after newer ones. A correction to a roll call already imported (a changed vote, date or
+tally) is counted separately from new rows, and a data release is cut for either; a
+re-fetch that finds nothing new and nothing changed writes nothing.
+
+Roll calls imported from the extracts carry UNBIS thesaurus terms where the Digital Library
+uses its own subject headings, and the theme rules read the two differently (52 of 302
+roll calls in sessions 79–80 changed theme with the source). A recurring resolution
+therefore takes the theme of its latest library-sourced vote under the same title, which
+leaves 31 differing, all one-off resolutions that keep their own classification. The
+agenda finding says how many recent roll calls came from the extracts.
 
 The 30-day newsletter includes a bounded selection of official headlines, the GA decision
 ledger for that period, an institutional adoption indicator, and three research findings.
+Headlines leave out routine notices (daily briefings, credentials, appointments,
+organisation of work), rank reports of events ahead of later items from the same day,
+and take at most two from a source and one per issue dossier. The register sometimes
+publishes a resolution weeks after its adoption: the ledger records when each symbol
+first appeared, and one adopted before the window but registered during it is listed
+under "Registered late" rather than never appearing.
 Its sources and coverage section distinguishes old upstream data from collection failure.
 WHO currently returns an older feed and is labelled quiet; this is partial UN-system
 coverage, not a claim to monitor every body. The live iGov country-vote endpoints returned

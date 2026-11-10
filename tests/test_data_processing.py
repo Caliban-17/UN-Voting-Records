@@ -321,3 +321,31 @@ def test_edge_cases():
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+def test_a_csv_newer_than_its_parquet_cache_is_reloaded(tmp_path):
+    import os
+
+    import pandas as pd
+
+    from src.data_processing import load_and_preprocess_data
+
+    def write(path, vote):
+        pd.DataFrame({
+            "undl_id": [1, 1], "ms_code": ["AAA", "BBB"], "ms_name": ["ALPHA", "BETA"],
+            "ms_vote": [vote, "Y"], "date": ["2025-12-01", "2025-12-01"], "session": [80, 80],
+            "title": ["Test : resolution"] * 2, "subjects": ["TEST"] * 2,
+            "resolution": ["A/RES/80/1"] * 2, "agenda_title": ["Test"] * 2, "undl_link": ["x"] * 2,
+        }).to_csv(path, index=False)
+
+    csv = tmp_path / "votes.csv"
+    write(csv, "Y")
+    first, _ = load_and_preprocess_data(str(csv))
+    assert (first["vote"] == 1).all()
+    parquet = tmp_path / "votes.parquet"
+    assert parquet.exists()
+    write(csv, "N")
+    later = os.path.getmtime(parquet) + 5
+    os.utime(csv, (later, later))
+    second, _ = load_and_preprocess_data(str(csv))
+    assert sorted(second["vote"]) == [-1, 1]

@@ -31,11 +31,14 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import weakref
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+from src.config import SYNTHETIC_ID_BASE
 from src.regional_groups import GROUP_ORDER, lineage_codes, regional_group
 
 logger = logging.getLogger(__name__)
@@ -242,7 +245,11 @@ RECURRING_VOTES: dict[str, dict] = {
 
 # ── Resolution table (one row per recorded vote) ─────────────────────────────
 
-_res_cache: dict[tuple[int, int], pd.DataFrame] = {}
+# id(frame) -> (weak reference to the frame, its length, the table). The weak
+# reference is what makes a hit safe: an id is reused once a frame is freed.
+_res_cache: dict[int, tuple[weakref.ref, int, pd.DataFrame]] = {}
+_res_lock = threading.Lock()
+_RES_CACHE_SLOTS = 2  # the app's frame and the research worker's deduplicated copy
 
 
 def classify_theme(text: str) -> str:
@@ -258,12 +265,50 @@ def resolutions_table(df: pd.DataFrame) -> pd.DataFrame:
     """One row per recorded vote with date, title, official tallies and theme.
 
     Cached per DataFrame object: the Flask app holds one frame for the life of
-    the process, so this is computed once.
+    the process, so this is computed once. The table is shared between request
+    threads: callers must never assign to it or sort it in place.
     """
-    key = (id(df), len(df))
-    cached = _res_cache.get(key)
-    if cached is not None:
-        return cached
+    with _res_lock:
+        hit = _res_cache.get(id(df))
+        if hit is not None and hit[0]() is df and hit[1] == len(df):
+            return hit[2]
+        res = _build_resolutions_table(df)
+        for key in [k for k, entry in _res_cache.items() if entry[0]() is None or k == id(df)]:
+            del _res_cache[key]
+        while len(_res_cache) >= _RES_CACHE_SLOTS:
+            del _res_cache[next(iter(_res_cache))]
+        _res_cache[id(df)] = (weakref.ref(df), len(df), res)
+        return res
+
+
+def _title_key(title: str) -> str:
+    """A title with years, session numbers and punctuation taken out, so that
+    one year's vote on a recurring resolution matches the next year's."""
+    text = re.sub(r"\d+", "#", str(title).casefold())
+    return " ".join(re.sub(r"[^a-z# ]+", " ", text).split())
+
+
+def _inherit_extract_themes(res: pd.DataFrame) -> None:
+    """Give roll calls imported from DGACM's extracts the theme of the latest
+    Digital Library vote with the same title.
+
+    The extracts label subjects with UNBIS thesaurus terms where the library
+    uses its own subject headings, and the keyword rules read the two
+    differently: across sessions 79–80, 52 of 302 roll calls changed theme
+    with the source. Most recorded votes recur every year under one title, so
+    inheriting restores the library's reading for those (31 still differ, all
+    one-off resolutions, which keep their own classification)."""
+    synthetic = pd.to_numeric(res["rcid"], errors="coerce") >= SYNTHETIC_ID_BASE
+    if not synthetic.any() or synthetic.all():
+        return
+    keys = res["title"].map(_title_key)
+    library = res.loc[~synthetic, ["date", "theme"]].assign(_key=keys[~synthetic]).sort_values("date")
+    latest = library.drop_duplicates("_key", keep="last").set_index("_key")["theme"]
+    inherited = keys[synthetic].map(latest).dropna()
+    res.loc[inherited.index, "theme"] = inherited
+
+
+def _build_resolutions_table(df: pd.DataFrame) -> pd.DataFrame:
     cols = [c for c in (
         "rcid", "year", "date", "issue", "subjects", "primary_topic", "resolution",
         "total_yes", "total_no", "total_abstentions",
@@ -279,6 +324,7 @@ def resolutions_table(df: pd.DataFrame) -> pd.DataFrame:
     )
     res["theme"] = text.map(classify_theme)
     res["title"] = res["issue"].fillna("").astype(str).str.split(" : ").str[0]
+    _inherit_extract_themes(res)
     for c in ("total_yes", "total_no", "total_abstentions"):
         if c in res.columns:
             res[c] = pd.to_numeric(res[c], errors="coerce")
@@ -296,9 +342,9 @@ def resolutions_table(df: pd.DataFrame) -> pd.DataFrame:
     res["contested"] = res["winning_share"] < (2 / 3)
     res["divided"] = res["winning_share"] < 0.9
     res["year"] = res["year"].astype(int)
-    _res_cache.clear()
-    _res_cache[key] = res
-    return res
+    # Consolidated before it is shared, so that no reader's first slice
+    # reorganises the frame's internals under another thread.
+    return res.copy()
 
 
 # A trailing year with fewer recorded votes than this is treated as still in
@@ -306,25 +352,44 @@ def resolutions_table(df: pd.DataFrame) -> pd.DataFrame:
 INCOMPLETE_YEAR_MIN_VOTES = 10
 # A year needs at least this many recorded votes to anchor a takeaway.
 FULL_YEAR_MIN_VOTES = 20
+# The record's final calendar year is complete only once it reaches the
+# December plenaries (month, day of its latest vote). A vote count cannot
+# tell: 2025 and 2026 each passed twenty recorded votes by early July, with
+# about two-fifths of a year's votes still to come after 10 December. Since
+# 2019 the year's last recorded vote has fallen between 18 and 31 December.
+# Tests set it to (1, 1).
+YEAR_COMPLETE_FROM = (12, 15)
+
+
+def _final_year_complete(res: pd.DataFrame) -> bool:
+    """Whether the latest calendar year in the record has its December votes."""
+    latest = pd.to_datetime(res["date"], errors="coerce").max()
+    return pd.isna(latest) or (latest.month, latest.day) >= YEAR_COMPLETE_FROM
 
 
 def _complete_years(res: pd.DataFrame) -> list[int]:
-    """Calendar years with a meaningful number of recorded votes (the current,
-    in-progress year is dropped when it has fewer than
-    ``INCOMPLETE_YEAR_MIN_VOTES``)."""
+    """Calendar years to plot: every year before the record's last, plus the
+    last one once it is complete (``YEAR_COMPLETE_FROM``) and holds at least
+    ``INCOMPLETE_YEAR_MIN_VOTES`` recorded votes."""
     counts = res.groupby("year")["rcid"].nunique()
     last = counts.index.max()
-    years = [int(y) for y, n in counts.items() if y < last or n >= INCOMPLETE_YEAR_MIN_VOTES]
+    keep_last = _final_year_complete(res)
+    years = [
+        int(y) for y, n in counts.items()
+        if y < last or (keep_last and n >= INCOMPLETE_YEAR_MIN_VOTES)
+    ]
     return sorted(years)
 
 
 def last_full_year(df: pd.DataFrame) -> int:
-    """Most recent calendar year with at least 20 recorded votes."""
+    """Most recent complete calendar year with at least 20 recorded votes."""
     return _last_full_year(resolutions_table(df))
 
 
 def _last_full_year(res: pd.DataFrame) -> int:
     counts = res.groupby("year")["rcid"].nunique()
+    if len(counts) > 1 and not _final_year_complete(res):
+        counts = counts.iloc[:-1]
     eligible = counts[counts >= FULL_YEAR_MIN_VOTES]
     return int(eligible.index.max() if not eligible.empty else counts.index.max())
 
@@ -342,8 +407,9 @@ def agenda_by_year(df: pd.DataFrame) -> dict:
         .reindex(index=years, fill_value=0)
         .reindex(columns=THEME_ORDER, fill_value=0)
     )
-    res["decade"] = (res["year"] // 10) * 10
-    dec = pd.crosstab(res["decade"], res["theme"], normalize="index").reindex(
+    # A local series: the table is shared, so a column must not be added to it.
+    decade = ((res["year"] // 10) * 10).rename("decade")
+    dec = pd.crosstab(decade, res["theme"], normalize="index").reindex(
         columns=THEME_ORDER, fill_value=0
     )
     last_dec = int(dec.index.max())
@@ -692,6 +758,9 @@ def _region_note(regions: list[dict]) -> str:
             continue
         sided = r["yes"] + r["no"]
         if sided == 0:
+            # A group that only abstained did not back the text.
+            if r["abstain"]:
+                scored.append((0.0, r))
             continue
         scored.append((r["yes"] / sided, r))
     if not scored:
@@ -878,7 +947,7 @@ def country_story(
         if means:
             partner = max(means, key=means.get)
             parts.append(
-                f"Its closest permanent member over {last['year'] - 4}–{last['year']} has been "
+                f"Of these powers, the closest over {last['year'] - 4}–{last['year']} has been "
                 f"{names.get(partner, partner)} ({means[partner] * 100:.0f}%)."
             )
         if last.get("with_majority") is not None:
@@ -907,6 +976,20 @@ def country_story(
 # ── 7. This week in the Assembly ─────────────────────────────────────────────
 
 
+def naive_utc_day(as_of: Optional[str] = None) -> pd.Timestamp:
+    """``as_of`` (default now) as a timezone-naive UTC midnight, the form the
+    record's dates take. A zone-aware string must not raise on subtraction."""
+    try:
+        stamp = pd.Timestamp(as_of) if as_of else pd.Timestamp.now(tz="UTC")
+    except (ValueError, TypeError, OverflowError):
+        stamp = pd.NaT
+    if pd.isna(stamp) or not 1946 <= stamp.year <= 2200:
+        raise ValueError("as_of is not a date")
+    if stamp.tzinfo is not None:
+        stamp = stamp.tz_convert("UTC").tz_localize(None)
+    return stamp.normalize()
+
+
 def recent_votes(
     df: pd.DataFrame,
     days: int = 14,
@@ -927,7 +1010,7 @@ def recent_votes(
     latest = dates.max()
     if pd.isna(latest):
         return {"sitting": False, "count": 0, "votes": [], "takeaway": ""}
-    today = pd.Timestamp(as_of) if as_of else pd.Timestamp.utcnow().tz_localize(None).normalize()
+    today = naive_utc_day(as_of)
     sitting = (today - latest).days <= days
     start = latest - pd.Timedelta(days=days)
     window = res[(dates >= start) & (dates <= latest)].assign(_d=dates).sort_values("_d", ascending=False)
@@ -956,11 +1039,15 @@ def recent_votes(
         })
     takeaway = ""
     if votes:
-        closest = min(votes, key=lambda v: v["winning_share"] if v["winning_share"] is not None else 1.0)
+        # The closest of every vote in the window, not only of the ones listed.
+        shares = window["winning_share"]
+        near = window.loc[shares.idxmin()] if shares.notna().any() else window.iloc[0]
+        tally = [int(v) if pd.notna(v) else 0
+                 for v in (near["total_yes"], near["total_no"], near["total_abstentions"])]
         takeaway = (
             f"{len(window)} recorded vote{'s' if len(window) != 1 else ''} in the fortnight to "
-            f"{latest.strftime('%-d %B %Y')}. The closest was \"{closest['title']}\", "
-            f"{closest['yes']} to {closest['no']} with {closest['abstain']} abstaining."
+            f"{latest.strftime('%-d %B %Y')}. The closest was \"{near['title']}\", "
+            f"{tally[0]} to {tally[1]} with {tally[2]} abstaining."
         )
     return {
         "sitting": bool(votes) and bool(sitting),
