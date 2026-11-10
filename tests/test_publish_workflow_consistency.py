@@ -167,3 +167,22 @@ def test_latest_data_release_is_resolved_by_publish_date():
         assert any(f"sort_by(.{field})" in code for field in ("publishedAt", "published_at")), (
             f"{path}: must sort data releases on publication date"
         )
+
+
+def test_no_step_condition_hashes_the_voting_csv():
+    """hashFiles() on the 360 MB CSV can exceed its 120-second limit, which
+    failed a refresh run and skipped that day's publication. Steps test the
+    fetch step's ``have_csv`` output instead."""
+    for path in (WORKFLOW_PATH, REFRESH_WORKFLOW_PATH):
+        text = Path(path).read_text()
+        assert "hashFiles('data/2025_03_31_ga_voting_corr1.csv')" not in text, path
+        assert "hashFiles('data/*" not in text, path
+        assert 'echo "have_csv=true" >> "$GITHUB_OUTPUT"' in text, path
+        assert "steps.fetch.outputs.have_csv == 'true'" in text, path
+
+
+def test_research_publication_fails_without_a_data_release():
+    code = _all_step_runs(Path(".github/workflows/publish-research.yml"))
+    # `test a && test b` never trips `set -e`; the guard must exit explicitly.
+    assert 'test -n "$LATEST_TAG" && test' not in code
+    assert 'if [ -z "$LATEST_TAG" ]' in code and "exit 1" in code

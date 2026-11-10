@@ -46,6 +46,17 @@ def sections(edition):
         add("small", f"{item['date']} · {item['symbol']} · {outcome}", item["source_url"])
     if not decisions:
         add("p", "No resolutions in this date window were available in the monitored registers. This is not evidence that the UN was inactive.")
+    late = live.get("late_decisions", [])
+    if late:
+        add("h3", "Registered late")
+        add("small", "Adopted before this window, but first published in the register during it.")
+        for item in late:
+            add("link", item["title"], item.get("url") or item["source_url"])
+            tally = item["tally"]
+            outcome = (f"{tally['yes']} for · {tally['no']} against · {tally['abstain']} abstaining"
+                       if tally else "Adopted without a vote")
+            add("small", f"{item['date']} · {item['symbol']} · {outcome} · registered {item['registered']}",
+                item["source_url"])
 
     add("h2", "The UN as an institution")
     if decisions:
@@ -74,9 +85,12 @@ def sections(edition):
         add("p", "No sufficiently supported research findings are available.")
 
     add("h2", "What to watch next")
-    missing = [r for r in decisions if r["tally"] and r["date"] > (live.get("rollcall_data_through") or "")]
+    missing = live.get("pending_rollcalls")
+    if missing is None:  # editions archived before the ledger-wide count
+        missing = sum(1 for r in decisions
+                      if r["tally"] and r["date"] > (live.get("rollcall_data_through") or ""))
     if missing:
-        add("p", f"Complete country roll calls for {len(missing)} newer recorded resolutions are not yet in the research dataset. "
+        add("p", f"Complete country roll calls for {_plural(missing, 'newer recorded resolution')} are not yet in the research dataset. "
             "Their official totals are reported above, but no country positions or alignment shifts are inferred from those totals. "
             "The automatic refresh will incorporate complete roll calls when the upstream dataset supplies them.")
     add("p", "Watch whether subsequent votes sustain the measured alignment and division patterns. A change in the agenda, attendance or resolution wording could alter them.")

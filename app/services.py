@@ -8,8 +8,10 @@ single import point and no circular dependencies.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
+import weakref
 import difflib
 import threading
 import time
@@ -115,10 +117,56 @@ def data_freshness() -> dict:
     }
 
 
+_country_code_cache: tuple[weakref.ref, set[str]] | None = None
+
+
 def country_codes() -> set[str]:
+    """ISO-3 codes in the loaded frame, computed once per frame: building the
+    set scans every row, and every request with a country parameter asks."""
+    global _country_code_cache
     if df_global is None or df_global.empty:
         return set()
-    return {str(c).strip().upper() for c in df_global["country_identifier"].dropna()}
+    if _country_code_cache is None or _country_code_cache[0]() is not df_global:
+        codes = {str(c).strip().upper() for c in df_global["country_identifier"].dropna().unique()}
+        _country_code_cache = (weakref.ref(df_global), codes)
+    return _country_code_cache[1]
+
+
+def _between(key: str, number, lo, hi):
+    if (lo is not None and number < lo) or (hi is not None and number > hi):
+        if lo is not None and hi is not None:
+            raise ValueError(f"{key} must be between {lo} and {hi}")
+        raise ValueError(f"{key} must be at {'least' if lo is not None else 'most'} "
+                         f"{lo if lo is not None else hi}")
+    return number
+
+
+def float_field(data: dict, key: str, default: float,
+                lo: float | None = None, hi: float | None = None) -> float:
+    """An optional numeric field of a JSON body. Raises ValueError with a plain
+    message when it is null, a list, not finite or out of range."""
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError(f"{key} must be a number")
+    try:
+        number = float(value)
+    except ValueError:
+        raise ValueError(f"{key} must be a number") from None
+    if not math.isfinite(number):
+        raise ValueError(f"{key} must be a finite number")
+    return _between(key, number, lo, hi)
+
+
+def int_field(data: dict, key: str, default: int,
+              lo: int | None = None, hi: int | None = None) -> int:
+    """An optional whole-number field of a JSON body; see ``float_field``."""
+    try:
+        number = float_field(data, key, default)
+    except ValueError:
+        raise ValueError(f"{key} must be a whole number") from None
+    if number != int(number):
+        raise ValueError(f"{key} must be a whole number")
+    return _between(key, int(number), lo, hi)
 
 
 _country_name_cache: dict[str, str] | None = None
@@ -175,26 +223,33 @@ def normalize_country_code(raw: Any) -> str:
 # ── Year / train-test validation ─────────────────────────────────────────────
 
 
+def _require_object(data) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("JSON body must be an object")
+
+
 def validate_year_range(data: dict) -> tuple[int, int]:
     try:
+        _require_object(data)
         min_year, max_year = get_year_bounds()
         start_default = max(min_year, max_year - 10)
-        start_year = int(data.get("start_year", start_default))
-        end_year = int(data.get("end_year", max_year))
+        start_year = int_field(data, "start_year", start_default)
+        end_year = int_field(data, "end_year", max_year)
         if start_year < min_year or end_year > max_year:
             raise ValueError(f"Year must be between {min_year} and {max_year}")
         if start_year > end_year:
             raise ValueError("start_year cannot be greater than end_year")
         return start_year, end_year
-    except (ValueError, TypeError) as exc:
+    except (ValueError, TypeError, OverflowError) as exc:
         raise ValueError(f"Invalid year range: {exc}") from exc
 
 
 def validate_train_test_years(data: dict) -> tuple[int, int]:
     try:
+        _require_object(data)
         min_year, max_year = get_year_bounds()
-        train_end = int(data.get("train_end", max(min_year, max_year - 5)))
-        test_start = int(data.get("test_start", min(max_year, train_end + 1)))
+        train_end = int_field(data, "train_end", max(min_year, max_year - 5))
+        test_start = int_field(data, "test_start", min(max_year, train_end + 1))
         if not (min_year <= train_end <= max_year):
             raise ValueError(f"train_end must be between {min_year} and {max_year}")
         if not (min_year <= test_start <= max_year):

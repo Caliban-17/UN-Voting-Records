@@ -1,6 +1,6 @@
 import json
 from functools import wraps
-from flask import request
+from flask import Response, request
 from collections import OrderedDict
 from dataclasses import dataclass
 from threading import RLock
@@ -71,20 +71,20 @@ def cached_api(f):
             key = f"{f.__name__}_{request.url}"
 
         if key:
-            cached_resp = api_cache.get(key)
-            if cached_resp:
-                return cached_resp
+            cached = api_cache.get(key)
+            if cached:
+                body, mimetype = cached
+                return Response(body, status=200, mimetype=mimetype)
 
         response = f(*args, **kwargs)
 
-        # Support both standard response objects and tuples (response, status_code)
-        if key:
-            status = getattr(response, "status_code", None)
-            if status is None and isinstance(response, tuple):
-                status = response[1]
-
-            if status == 200:
-                api_cache.put(key, response)
+        # Cache the payload, never the Response object: after-request hooks
+        # add per-request headers to it (flask-cors writes the caller's
+        # Access-Control-Allow-Origin), and a reused object would replay the
+        # first caller's headers to everyone else.
+        if key and isinstance(response, Response) and response.status_code == 200 \
+                and not response.is_streamed:
+            api_cache.put(key, (response.get_data(), response.mimetype))
 
         return response
 

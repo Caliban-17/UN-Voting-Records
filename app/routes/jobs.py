@@ -6,7 +6,7 @@ import logging
 
 from flask import Blueprint, jsonify, request
 
-from app.routes.core import make_error, make_server_error
+from app.routes.core import make_error, make_server_error, reject_value_error
 from app.services import (
     get_df,
     validate_year_range,
@@ -61,7 +61,7 @@ def start_train_model_job():
         )
         return jsonify({"job_id": job_id, "status": "queued"}), 202
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Failed to queue training job", exc)
 
@@ -82,7 +82,7 @@ def start_soft_power_trends_job():
         )
         return jsonify({"job_id": job_id, "status": "queued"}), 202
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Failed to queue soft-power trends job", exc)
 
@@ -108,6 +108,6 @@ def start_network_animation_job():
         )
         return jsonify({"job_id": job_id, "status": "queued"}), 202
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Failed to queue network animation job", exc)

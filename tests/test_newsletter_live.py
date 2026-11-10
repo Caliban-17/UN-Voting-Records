@@ -123,3 +123,30 @@ def test_newsletter_feed_reads_only_the_newest_archives(tmp_path, monkeypatch):
         feed = ET.fromstring(client.get("/newsletter/feed.xml").data)
     titles = [node.text for node in feed.findall("channel/item/title")]
     assert len(titles) == 30 and titles[0] == "Edition 69"
+
+
+def test_watch_next_counts_every_recorded_decision_awaiting_roll_calls():
+    decisions, pulse, research = evidence()
+    older = {**decisions["records"][0], "symbol": "A/RES/80/300", "date": "2026-08-10"}
+    decisions["records"].append(older)
+    edition = build_current_edition(current_affairs(decisions, pulse, research, now=NOW), "2026-09-29")
+    assert "roll calls for 2 newer recorded resolutions are not yet" in render_text(edition)
+    # An edition archived before the ledger-wide count still renders.
+    del edition.current_affairs["pending_rollcalls"]
+    assert "roll calls for 1 newer recorded resolution are not yet" in render_text(edition)
+
+
+def test_late_registrations_are_listed_apart_and_change_the_edition():
+    decisions, pulse, research = evidence()
+    late = {**decisions["records"][0], "symbol": "A/RES/80/311", "date": "2026-08-04",
+            "title": "Registered weeks after adoption", "first_seen_at": "2026-09-25T10:00:00Z"}
+    plain = build_current_edition(current_affairs(decisions, pulse, research, now=NOW), "2026-09-29")
+    decisions["records"].append(late)
+    edition = build_current_edition(current_affairs(decisions, pulse, research, now=NOW), "2026-09-29")
+    assert edition.content_hash != plain.content_hash
+    for render in (render_html, render_markdown, render_text):
+        output = render(edition)
+        assert "Registered late" in output and "Registered weeks after adoption" in output
+        assert "A/RES/80/311" in output and "registered 2026-09-25" in output
+    assert "Registered late" not in render_text(plain)
+    assert edition_from_dict(edition_to_dict(edition)) == edition

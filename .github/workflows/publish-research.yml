@@ -38,7 +38,12 @@ jobs:
           fi
           LATEST_TAG=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | \
             jq -r '[.[][] | select(.tag_name | startswith("data-"))] | sort_by(.published_at) | last.tag_name // empty')
-          test -n "$LATEST_TAG" && test "$LATEST_TAG" != "null"
+          # An `a && b` test never trips `set -e`; an empty tag would make
+          # `gh release download ""` fall back to whatever release is "Latest".
+          if [ -z "$LATEST_TAG" ] || [ "$LATEST_TAG" = "null" ]; then
+            echo "::error::No data-* release found; refusing to publish without voting data."
+            exit 1
+          fi
           mkdir -p /tmp/un-votes
           gh release download "$LATEST_TAG" --pattern '*.csv' --dir /tmp/un-votes
           python - <<'PY'

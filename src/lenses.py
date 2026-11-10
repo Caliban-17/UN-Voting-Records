@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 import re
+import weakref
 from typing import Optional
 
 import numpy as np
@@ -50,7 +51,8 @@ from src.lenses_partitions import (
     liberal_democracy_index, partition_labels, regime_type, women_in_parliament,
 )
 from src.story_analysis import (
-    _complete_years, _side_matrix, division_by_year, last_full_year, resolutions_table,
+    _complete_years, _final_year_complete, _side_matrix, division_by_year, last_full_year,
+    resolutions_table,
 )
 
 logger = logging.getLogger(__name__)
@@ -232,14 +234,14 @@ def _rank_link(matrix: pd.DataFrame, cols: list, indicator: dict[str, Optional[f
 
 def _last_complete_year(res: pd.DataFrame, last_full: Optional[int]) -> Optional[int]:
     """The last year whose main session part is in the record: the record's
-    final year counts only once it holds a December vote. Earlier years are
-    taken as the story layer's last full year."""
+    final year counts only once it reaches the December plenaries, by the
+    story layer's rule (``story_analysis.YEAR_COMPLETE_FROM``)."""
     if last_full is None or res.empty:
         return last_full
     latest = pd.to_datetime(res["date"], errors="coerce").max()
     if pd.isna(latest):
         return last_full
-    if last_full >= latest.year and latest.month < 12:
+    if last_full >= latest.year and not _final_year_complete(res):
         return latest.year - 1
     return last_full
 
@@ -263,17 +265,20 @@ def _mean_of(components: list[list[Optional[float]]]) -> list[Optional[float]]:
     return out
 
 
-_timeline_cache: dict[tuple[int, int], dict] = {}
+# id(frame) -> (weak reference to the frame, its length, the timeline). The
+# weak reference guards against an id being reused by a different frame.
+_timeline_cache: dict[int, tuple[weakref.ref, int, dict]] = {}
 
 
 def lens_timeline_cached(df: pd.DataFrame) -> dict:
     """``lens_timeline`` computed once per DataFrame object (the app and the
     newsletter composer both hold one frame for the life of the process)."""
-    key = (id(df), len(df))
-    if key not in _timeline_cache:
+    hit = _timeline_cache.get(id(df))
+    if hit is None or hit[0]() is not df or hit[1] != len(df):
         _timeline_cache.clear()
-        _timeline_cache[key] = lens_timeline(df)
-    return _timeline_cache[key]
+        hit = (weakref.ref(df), len(df), lens_timeline(df))
+        _timeline_cache[id(df)] = hit
+    return hit[2]
 
 
 def lens_timeline(df: pd.DataFrame, permutations: int = PERMUTATIONS) -> dict:

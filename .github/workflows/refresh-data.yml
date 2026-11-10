@@ -53,6 +53,7 @@ jobs:
       # so the refresh always starts from the freshest snapshot published by
       # the previous run. Falls back to ATLAS_DATA_URL if no release exists.
       - name: Fetch current CSV from latest data release
+        id: fetch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ATLAS_DATA_URL: ${{ secrets.ATLAS_DATA_URL }}
@@ -89,9 +90,12 @@ jobs:
             exit 0
           fi
           echo "Source CSV: $(wc -l < data/2025_03_31_ga_voting_corr1.csv) lines."
+          # Later steps test this output: hashFiles() on the 360 MB CSV can
+          # exceed its 120-second limit and fail the run.
+          echo "have_csv=true" >> "$GITHUB_OUTPUT"
 
       - name: Refresh from DGACM's GitHub extracts (always promote in CI)
-        if: ${{ hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
+        if: ${{ steps.fetch.outputs.have_csv == 'true' }}
         env:
           # Authenticated GitHub API calls: the extract listing would otherwise
           # share the runner's anonymous rate limit.
@@ -102,7 +106,7 @@ jobs:
       # The refresh script writes a JSON marker at .github/atlas-out/refresh-result.json
       # with the row delta. We only cut a new release when delta > 0; otherwise
       # we'd be creating a daily duplicate of the same dataset.
-      - name: Publish new data release (only if rows changed)
+      - name: Publish new data release (only if rows were added or corrected)
         id: release
         if: ${{ hashFiles('.github/atlas-out/refresh-result.json') != '' }}
         env:
@@ -112,8 +116,11 @@ jobs:
           DELTA=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json'))['delta'])")
           LATEST_DATE=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json')).get('latest_vote_date','?'))")
           ROWS=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json'))['source_rows'])")
-          echo "Refresh delta: $DELTA new rows. Source now at $LATEST_DATE ($ROWS total rows)."
-          if [ "$DELTA" -gt 0 ]; then
+          # A correction replaces a row and adds none, so the row delta alone
+          # would never publish it.
+          CORRECTED=$(python -c "import json; print(json.load(open('.github/atlas-out/refresh-result.json')).get('corrected', 0))")
+          echo "Refresh delta: $DELTA new rows, $CORRECTED corrected. Source now at $LATEST_DATE ($ROWS total rows)."
+          if [ "$DELTA" -gt 0 ] || [ "$CORRECTED" -gt 0 ]; then
             TAG="data-$(date -u +%Y-%m-%d)"
             # If the same-day tag already exists (e.g. manual rerun), append -N.
             if gh release view "$TAG" >/dev/null 2>&1; then
@@ -125,12 +132,12 @@ jobs:
               done
             fi
             gh release create "$TAG" data/2025_03_31_ga_voting_corr1.csv \
-              --title "UN voting data — $(date -u +%Y-%m-%d) (Δ +$DELTA rows)" \
-              --notes "Auto-refresh via MARC-XML. $ROWS total rows; latest vote $LATEST_DATE; +$DELTA since last release."
+              --title "UN voting data — $(date -u +%Y-%m-%d) (Δ +$DELTA rows, $CORRECTED corrected)" \
+              --notes "Refreshed from DGACM's GitHub extracts. $ROWS total rows; latest vote $LATEST_DATE; +$DELTA new and $CORRECTED corrected since the last release."
             echo "tag=$TAG" >> "$GITHUB_OUTPUT"
             echo "Created release $TAG."
           else
-            echo "::notice::Refresh produced 0 new rows — skipping release creation."
+            echo "::notice::Refresh produced no new or corrected rows — skipping release creation."
           fi
 
       # ── Keep the release list short ─────────────────────────────────────────
@@ -156,7 +163,7 @@ jobs:
           echo "Kept the newest $KEEP_DATA_RELEASES data releases."
 
       - name: Upload candidate as workflow artifact (backup)
-        if: ${{ hashFiles('data/*.archived-*.csv') != '' || hashFiles('data/2025_03_31_ga_voting_corr1.csv') != '' }}
+        if: ${{ steps.fetch.outputs.have_csv == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: refreshed-csv-snapshot

@@ -68,7 +68,7 @@
         {% if pulse.stale %}Collection is overdue or has not completed. Retained articles keep their original dates.
         {% elif pulse.status == 'partial' %}Partial coverage: one or more sources failed or have carried no new articles for over 30 days.
         {% else %}Source collection is up to date.{% endif %}
-        {% if pulse.checked_at %} Last checked {{ pulse.checked_at | replace('T', ' ') | replace('Z', ' UTC') }}.{% endif %}
+        {% if pulse.checked_at %} Last checked {{ pulse.checked_at[:16] | replace('T', ' ') }} UTC.{% endif %}
       </p>
       <form class="research-filters" action="/briefing#context" method="get">
         <label>Research area<select name="topic"><option value="">All areas</option>{% for t in pulse.topics %}<option {% if topic == t.name %}selected{% endif %} value="{{ t.name }}">{{ t.name }} ({{ t.count }})</option>{% endfor %}</select></label>

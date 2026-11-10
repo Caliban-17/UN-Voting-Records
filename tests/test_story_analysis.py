@@ -16,6 +16,7 @@ def _small_years_count_as_complete(monkeypatch):
     """The synthetic record has two votes a year; don't drop its last year."""
     monkeypatch.setattr(S, "INCOMPLETE_YEAR_MIN_VOTES", 0)
     monkeypatch.setattr(S, "FULL_YEAR_MIN_VOTES", 0)
+    monkeypatch.setattr(S, "YEAR_COMPLETE_FROM", (1, 1))
 
 
 # ── synthetic record ─────────────────────────────────────────────────────────
@@ -427,3 +428,146 @@ def test_story_emergency_endpoint_lists_open_sessions(client):
     eleventh = next(s for s in data["sessions"] if s["number"] == 11)
     assert eleventh["votes"][0]["symbol"] == "A/RES/ES-11/1"
     assert client.get("/api/story/calendar?as_of=2026-09-01").get_json()["session"]["number"] == 81
+
+
+# ── shared table, year completeness, windows (regressions) ───────────────────
+
+
+def test_big_picture_functions_never_modify_the_shared_table():
+    """agenda_by_year used to add a column to the cached table on every call;
+    under the threaded server that corrupted concurrent readers (an
+    intermittent 500 on /api/story/calendar)."""
+    from src.session_calendar import calendar_for
+
+    df = _frame()
+    before = S.resolutions_table(df).copy()
+    S.agenda_by_year(df)
+    S.division_by_year(df)
+    S.world_alignment_with(df, "AAA")
+    S.alignment_scatter(df, 2002, 2003, anchors=("AAA", "BBB"), min_comparisons=1)
+    S.recurring_vote_series(df, "cuba")
+    S.country_story(df, "CCC", anchors=("AAA", "BBB"), min_votes=1)
+    S.recent_votes(df)
+    S.emergency_sessions(df)
+    calendar_for(df, as_of="2003-11-10")
+    after = S.resolutions_table(df)
+    assert after is S.resolutions_table(df)
+    assert list(after.columns) == list(before.columns)
+    pd.testing.assert_frame_equal(after, before)
+    assert after._mgr.is_consolidated()
+
+
+def test_table_cache_requires_the_same_frame_not_just_the_same_id():
+    first = _frame()
+    table = S.resolutions_table(first)
+    other = _frame()
+    other["issue"] = "Programme budget for the biennium : resolution"
+    # Simulate Python reusing a freed frame's id for a different frame.
+    import weakref
+    S._res_cache[id(other)] = (weakref.ref(first), len(other), table)
+    rebuilt = S.resolutions_table(other)
+    assert rebuilt is not table
+    assert set(rebuilt["title"]) == {"Programme budget for the biennium"}
+    S._res_cache.clear()
+
+
+def test_a_year_without_its_december_votes_is_not_a_full_year(monkeypatch):
+    monkeypatch.setattr(S, "YEAR_COMPLETE_FROM", (12, 15))
+    df = _frame()  # every vote is dated in early November
+    res = S.resolutions_table(df)
+    assert S._complete_years(res) == [2001, 2002]
+    assert S.last_full_year(df) == 2002
+    assert S.division_by_year(df)["last_full_year"] == 2002
+    assert [r["year"] for r in S.division_by_year(df)["series"]] == [2001, 2002]
+    done = df.copy()
+    done.loc[done["rcid"] == 6, "date"] = "2003-12-20"
+    assert S.last_full_year(done) == 2003
+    assert S._complete_years(S.resolutions_table(done)) == [2001, 2002, 2003]
+
+
+def test_closest_vote_is_the_closest_in_the_window_not_in_the_listing():
+    df = _frame()
+    # rcid 5 (2003-11-05) is 2-1; rcid 6 (2003-11-06) is 2-2. List only the newest.
+    out = S.recent_votes(df, days=14, limit=1, as_of="2003-11-10")
+    assert out["count"] == 2 and len(out["votes"]) == 1
+    assert 'The closest was "Programme budget for the biennium", 2 to 2' in out["takeaway"]
+    older_is_closer = df.copy()
+    older_is_closer.loc[older_is_closer["rcid"] == 6, ["total_yes", "total_no"]] = [4, 0]
+    S._res_cache.clear()
+    out = S.recent_votes(older_is_closer, days=14, limit=1, as_of="2003-11-10")
+    assert out["votes"][0]["rcid"] == 6
+    assert "The closest was \"Necessity of ending the embargo" in out["takeaway"]
+    assert "2 to 1" in out["takeaway"]
+
+
+def test_region_note_counts_a_group_that_only_abstained():
+    regions = [
+        {"region": "African Group", "yes": 10, "no": 0, "abstain": 0, "members": 10},
+        {"region": "Eastern European Group", "yes": 0, "no": 0, "abstain": 6, "members": 6},
+    ]
+    note = S._region_note(regions)
+    assert "Every regional group" not in note
+    assert "Eastern European Group, where 6 of 6 members voted against or abstained" in note
+
+
+def test_as_of_with_a_time_zone_is_accepted():
+    from src.session_calendar import calendar_for
+
+    aware, naive = "2003-11-10T00:00:00+00:00", "2003-11-10"
+    assert S.recent_votes(_frame(), as_of=aware)["as_of"] == "2003-11-10"
+    assert calendar_for(_frame(), as_of=aware)["note"] == calendar_for(_frame(), as_of=naive)["note"]
+    with pytest.raises(ValueError):
+        calendar_for(_frame(), as_of="NaT")
+
+
+def test_leap_day_has_a_phase():
+    from datetime import date
+
+    from src.session_calendar import session_phase
+
+    assert session_phase(date(2028, 2, 29))["key"] == "recess"
+
+
+def test_typical_date_does_not_shift_in_a_leap_year():
+    from src.session_calendar import upcoming_recurring_votes
+
+    df = _frame()  # Cuba votes on 4 November 2002 and 5 November 2003
+    for as_of in ("2027-10-20", "2028-10-20"):  # 2028 is a leap year
+        cuba = next(u for u in upcoming_recurring_votes(df, as_of=as_of) if u["key"] == "cuba")
+        assert cuba["typical_date"] == "5 November", as_of
+
+
+def test_a_late_december_vote_still_counts_as_landed_in_january():
+    from src.session_calendar import landed_recurring_votes
+
+    df = _frame()
+    df.loc[df["rcid"] == 5, "date"] = "2003-12-20"
+    S._res_cache.clear()
+    landed = landed_recurring_votes(df, as_of="2004-01-02")
+    assert [x["key"] for x in landed] == ["cuba"]
+    assert landed[0]["days_ago"] == 13
+    assert landed[0]["last_year"] == {"yes": 3, "no": 1, "abstain": 0}
+
+
+def test_an_extract_row_takes_the_theme_of_the_same_resolution_last_year():
+    """DGACM's extracts label subjects differently from the Digital Library,
+    and the keyword rules read them differently; a recurring resolution must
+    not change theme because its source did."""
+    from src.config import SYNTHETIC_ID_BASE
+
+    df = _frame()
+    extract = df[df["rcid"] == 5].copy()                 # the 2003 Cuba embargo vote
+    extract["rcid"] = SYNTHETIC_ID_BASE + 7
+    extract["year"], extract["date"] = 2004, "2004-11-04"
+    extract["issue"] = "Necessity of ending the embargo imposed by the United States of America against Cuba"
+    extract["subjects"] = extract["primary_topic"] = "HUMAN RIGHTS"
+    new = extract.copy()
+    new["rcid"] = SYNTHETIC_ID_BASE + 8
+    new["issue"] = "International Day of Hope"
+    table = S.resolutions_table(pd.concat([df, extract, new], ignore_index=True)).set_index("rcid")
+    library_theme = table.loc[5, "theme"]
+    assert S.classify_theme("Necessity of ending the embargo || HUMAN RIGHTS || HUMAN RIGHTS") != library_theme
+    assert table.loc[SYNTHETIC_ID_BASE + 7, "theme"] == library_theme
+    # No earlier vote under that title: it keeps its own classification.
+    assert table.loc[SYNTHETIC_ID_BASE + 8, "theme"] == "Human rights"
+    assert S._title_key("Programme budget for 2025") == S._title_key("Programme budget for 2026")

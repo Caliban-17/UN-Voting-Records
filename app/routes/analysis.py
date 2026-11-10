@@ -8,8 +8,10 @@ import json
 from flask import Blueprint, jsonify, request
 
 from app.middleware import with_analysis_slot
-from app.routes.core import make_error, make_server_error
+from app.routes.core import make_error, make_server_error, reject_value_error
 from app.services import (
+    float_field,
+    int_field,
     country_names,
     get_df,
     validate_year_range,
@@ -29,6 +31,9 @@ from src.sankey_analysis import build_sankey_timeline
 from src.network_viz import plot_bloc_sankey
 
 logger = logging.getLogger(__name__)
+# A divergence report costs time per member while holding an analysis slot.
+MAX_REPORT_COUNTRIES = 60
+
 bp = Blueprint("analysis", __name__)
 
 
@@ -53,10 +58,7 @@ def run_clustering():
 
         include_stability = bool(data.get("include_stability", True))
         stability_bootstraps = max(
-            4,
-            min(
-                50, int(data.get("stability_bootstraps", DEFAULT_STABILITY_BOOTSTRAPS))
-            ),
+            4, min(50, int_field(data, "stability_bootstraps", DEFAULT_STABILITY_BOOTSTRAPS))
         )
 
         vote_matrix, _, df_filtered = preprocess_for_similarity(
@@ -102,7 +104,7 @@ def run_clustering():
 
         return jsonify(result)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Clustering error", exc)
 
@@ -146,6 +148,8 @@ def calculate_soft_power():
                 ),
             }
         )
+    except ValueError as exc:
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Soft power error", exc)
 
@@ -166,7 +170,7 @@ def abstention_analysis():
         # We need the full DataFrame, not just the vote matrix for abstention logic
         # since we want to count raw votes. The service handles its own filtering
         # but let's pass a safe minimum vote threshold
-        min_votes = int(data.get("min_votes", 10))
+        min_votes = int_field(data, "min_votes", 10, lo=0)
 
         result = calculate_abstention_rates(get_df(), start_year, end_year, min_votes)
         if "error" in result:
@@ -178,7 +182,7 @@ def abstention_analysis():
         return jsonify(result)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Abstention analysis error", exc)
 
@@ -195,8 +199,8 @@ def pivotality_analysis():
             return make_error("No JSON data provided", 400)
 
         start_year, end_year = validate_year_range(data)
-        margin_threshold = float(data.get("margin_threshold", 0.15))
-        min_votes = int(data.get("min_votes", 10))
+        margin_threshold = float_field(data, "margin_threshold", 0.15, lo=0.0, hi=1.0)
+        min_votes = int_field(data, "min_votes", 10, lo=0)
 
         result = calculate_pivotality_index(
             get_df(), start_year, end_year, margin_threshold, min_votes
@@ -212,7 +216,7 @@ def pivotality_analysis():
         return jsonify(result)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Pivotality analysis error", exc)
 
@@ -229,8 +233,8 @@ def bloc_timeline_analysis():
             return make_error("No JSON data provided", 400)
 
         start_year, end_year = validate_year_range(data)
-        window = int(data.get("window", 5))
-        num_clusters = int(data.get("num_clusters", 4))
+        window = int_field(data, "window", 5, lo=1, hi=50)
+        num_clusters = int_field(data, "num_clusters", 4, lo=2, hi=50)
 
         sankey_data = build_sankey_timeline(
             get_df(), start_year, end_year, window, num_clusters
@@ -253,7 +257,7 @@ def bloc_timeline_analysis():
         return jsonify(payload)
 
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Bloc timeline analysis error", exc)
 
@@ -313,7 +317,7 @@ def compare_countries():
             }
         )
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Comparison error", exc)
 
@@ -332,13 +336,15 @@ def divergence_report():
         countries = data.get("countries", [])
         if not countries or not isinstance(countries, list):
             return make_error("List of countries is required", 400)
-        countries = [normalize_country_code(c) for c in countries]
+        if len(countries) > MAX_REPORT_COUNTRIES:
+            return make_error(f"countries may list at most {MAX_REPORT_COUNTRIES} members", 400)
+        countries = list(dict.fromkeys(normalize_country_code(c) for c in countries))
 
-        window = int(data.get("window", 2))
-        if not (1 <= window <= 10):
-            return make_error("window must be between 1 and 10", 400)
+        window = int_field(data, "window", 2, lo=1, hi=10)
 
         topic = data.get("topic")
+        if topic is not None and not isinstance(topic, str):
+            return make_error("topic must be text", 400)
 
         from src.divergence_analysis import DivergenceDetector
         from app.services import get_year_bounds
@@ -346,7 +352,7 @@ def divergence_report():
         min_year, max_year = get_year_bounds()
         # Default the analysis year to the most recent year present in the
         # dataset — never a hardcoded literal.
-        year = int(data.get("year") or max_year)
+        year = int_field(data, "year", max_year) if data.get("year") else max_year
         if not (min_year <= year <= max_year):
             return make_error(f"year must be between {min_year} and {max_year}", 400)
 
@@ -382,6 +388,6 @@ def divergence_report():
         )
         return jsonify(report)
     except ValueError as exc:
-        return make_error(str(exc), 400)
+        return reject_value_error(exc)
     except Exception as exc:
         return make_server_error("Divergence report error", exc)

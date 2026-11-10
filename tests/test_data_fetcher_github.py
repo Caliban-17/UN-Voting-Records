@@ -130,3 +130,43 @@ def test_quarantine_still_raises_for_unmapped_names():
     with pytest.raises(ValueError, match="no ISO-3 mapping"):
         G.extract_to_rows([_entry(MS_against=["ATLANTIS"])], G.build_code_lookup(existing),
                           G.current_members(existing))
+
+
+def test_adoption_dates_with_a_time_of_day_parse():
+    # Every entry in DGACM's 74.json is written this way; 90 recorded votes
+    # were skipped with a warning on each daily run.
+    assert G.parse_adoption_date("2019-11-07 00:00:00") == "2019-11-07"
+    assert G.parse_adoption_date("7 November 2019") == "2019-11-07"
+    rows = G.extract_to_rows([_entry(adoption_date="2025-10-29 00:00:00")],
+                             G.build_code_lookup(_existing()), G.current_members(_existing()))
+    assert {r["date"] for r in rows} == {"2025-10-29"}
+
+
+def test_a_roll_call_published_late_is_backfilled_once():
+    """DGACM fills its extracts out of order. A vote dated before the refresh
+    window used to be skipped for good; so was a quarantined roll call after
+    upstream corrected it."""
+    existing = _existing()
+    lookup, members = G.build_code_lookup(existing), G.current_members(existing)
+    late = _entry(symbol="A/RES/80/268", adoption_date="23 June 2025")
+    kwargs = dict(since_date="2025-10-22", backfill_from="2025-01-01")
+    # Without the record's symbols there is no backfill: the old behaviour.
+    assert G.extract_to_rows([late], lookup, members, since_date="2025-10-22") == []
+    rows = G.extract_to_rows([late], lookup, members, known_symbols={"A/RES/80/4"}, **kwargs)
+    assert {r["resolution"] for r in rows} == {"A/RES/80/268"}
+    # Already in the record, or older than the horizon: left alone.
+    assert G.extract_to_rows([late], lookup, members, known_symbols={"A/RES/80/268"}, **kwargs) == []
+    assert G.extract_to_rows([late], lookup, members, known_symbols=set(),
+                             since_date="2025-10-22", backfill_from="2025-07-01") == []
+    # Quarantined while one name short, imported once upstream corrects it.
+    broken = {**late, "MS_in_favour": ["BRAZIL", "CUBA"]}
+    quarantined = []
+    assert G.extract_to_rows([broken], lookup, members, known_symbols=set(),
+                             quarantined=quarantined, **kwargs) == []
+    assert [q["symbol"] for q in quarantined] == ["A/RES/80/268"]
+    assert G.extract_to_rows([late], lookup, members, known_symbols=set(), **kwargs)
+
+
+def test_known_symbols_come_from_the_existing_record():
+    assert G.known_symbols(_existing()) == {"A/RES/80/4", "A/RES/45/1"}
+    assert G.known_symbols(None) == set()

@@ -93,6 +93,39 @@ def _latest_vote_date(df: pd.DataFrame) -> datetime | None:
     return dates.max().to_pydatetime()
 
 
+# How far behind the record's newest vote a missing roll call is still imported.
+BACKFILL_DAYS = 400
+# A change in any of these on a row the record already holds is a correction.
+CORRECTION_COLUMNS = ("ms_vote", "date", "resolution", "total_yes", "total_no", "total_abstentions")
+
+
+def _corrections(existing: pd.DataFrame, merged: pd.DataFrame, touched_ids) -> tuple[int, list[str]]:
+    """How many rows the record already held were changed by this fetch (a
+    vote, a date or a tally corrected upstream), and for which resolutions.
+    Row counts cannot see these: a correction replaces a row, it adds none."""
+    key = ["undl_id", "ms_code"]
+    cols = [c for c in CORRECTION_COLUMNS if c in existing.columns and c in merged.columns]
+    if existing.empty or not cols or not set(key) <= set(existing.columns) & set(merged.columns):
+        return 0, []
+    touched = set(touched_ids)
+    old = existing[existing["undl_id"].isin(touched)].drop_duplicates(key, keep="last").set_index(key)
+    new = merged[merged["undl_id"].isin(touched)].drop_duplicates(key, keep="last").set_index(key)
+    shared = old.index.intersection(new.index)
+    if shared.empty:
+        return 0, []
+    differs = pd.Series(False, index=shared)
+    for col in cols:
+        a, b = old.loc[shared, col], new.loc[shared, col]
+        if col.startswith("total_"):
+            a, b = pd.to_numeric(a, errors="coerce"), pd.to_numeric(b, errors="coerce")
+            differs |= ~((a == b) | (a.isna() & b.isna()))
+        else:
+            differs |= a.fillna("").astype(str).str.strip() != b.fillna("").astype(str).str.strip()
+    changed = shared[differs.to_numpy()]
+    symbols = sorted(set(new.loc[changed, "resolution"].astype(str))) if "resolution" in new.columns else []
+    return int(differs.sum()), symbols
+
+
 def _report_quarantined(quarantined: list[dict]) -> None:
     """Make skipped roll calls visible: log lines locally, annotations in CI."""
     for item in quarantined:
@@ -163,8 +196,16 @@ def _run(
             cutoff_date,
         )
         quarantined: list[dict] = []
+        # The window above starts a week before the record's newest vote, but
+        # DGACM fills its extracts out of order: also take any roll call from
+        # the last BACKFILL_DAYS that the record does not yet hold.
+        backfill_from = (
+            (latest - timedelta(days=BACKFILL_DAYS)).strftime("%Y-%m-%d")
+            if latest is not None else None
+        )
         new_df = fetch_recent_votes_github(
-            since_date=cutoff_date, existing_df=existing, quarantined=quarantined
+            since_date=cutoff_date, existing_df=existing, quarantined=quarantined,
+            backfill_from=backfill_from,
         )
         _report_quarantined(quarantined)
     if new_df.empty:
@@ -185,6 +226,17 @@ def _run(
     merged = drop_superseded_synthetic_rows(merged)
     delta = len(merged) - len(existing)
     logger.info("Merged dataset has %d rows (Δ %+d).", len(merged), delta)
+    corrected, corrected_symbols = _corrections(
+        existing, merged, new_df["undl_id"] if "undl_id" in new_df.columns else []
+    )
+    if corrected:
+        logger.info("%d existing rows were corrected upstream (%s).",
+                    corrected, ", ".join(corrected_symbols[:10]))
+    if delta == 0 and not corrected:
+        # Re-fetching the overlap window found only what the record already
+        # holds: do not rewrite and re-promote an identical 360 MB file.
+        logger.info("Nothing new and nothing corrected; the record is unchanged.")
+        return 0
 
     if dry_run:
         logger.info("Dry-run mode — skipping write.")
@@ -268,6 +320,8 @@ def _run(
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "refresh-result.json").write_text(_json.dumps({
         "delta": delta,
+        "corrected": corrected,
+        "corrected_resolutions": corrected_symbols[:50],
         "source_path": str(source_path),
         "source_rows": int(len(merged)),
         "latest_vote_date": (

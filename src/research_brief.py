@@ -9,7 +9,8 @@ import json
 import pandas as pd
 
 from src.pulse import UTC, stamp
-from src.story_analysis import resolutions_table
+from src.config import SYNTHETIC_ID_BASE
+from src.story_analysis import _final_year_complete, resolutions_table
 
 
 def _percentage(value):
@@ -17,7 +18,9 @@ def _percentage(value):
 
 
 def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
-    """Compare eligible current YTD with the same dates in three prior years.
+    """Compare the record's latest year with the three before it: over the
+    same calendar dates while that year is incomplete, as whole years once it
+    has its December votes.
 
     A past year is not asserted to be complete: data coverage is always shown.
     Topic standardisation holds the reference-period agenda weights constant.
@@ -34,19 +37,28 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
     base["data_through"] = latest_date.date().isoformat() if pd.notna(latest_date) else None
     partial = False
     cutoff_label = ""
-    # Current-year work is seasonally compared, never against full prior years.
-    # Require 20 recent and 20 pooled baseline resolutions before using YTD.
-    if counts.get(now.year, 0) >= 20 and pd.notna(latest_date) and latest_date.year == now.year:
+    # The record's latest year is compared seasonally until it reaches the
+    # December plenaries, whatever today's date is: on 1 January a year whose
+    # data stops in July is still a part-year and must never be set against
+    # full prior years. Require 20 recent and 20 pooled baseline resolutions.
+    data_year = int(latest_date.year) if pd.notna(latest_date) else None
+    in_progress = data_year is not None and not _final_year_complete(res)
+    if in_progress and counts.get(data_year, 0) >= 20:
         cutoff = latest_date.strftime("%m-%d")
         seasonal = res[pd.to_datetime(res.date).dt.strftime("%m-%d") <= cutoff]
-        prior_count = seasonal[seasonal.year.between(now.year - 3, now.year - 1)].rcid.nunique()
+        prior_count = seasonal[seasonal.year.between(data_year - 3, data_year - 1)].rcid.nunique()
         if prior_count >= 20:
             partial = True
             cutoff_label = latest_date.strftime("%d %B").lstrip("0")
             res = seasonal
             df = df[df.rcid.isin(res.rcid)]
             counts = res.groupby("year")["rcid"].nunique()
-    eligible = counts[(counts.index <= now.year) & (counts > 0)] if partial else counts[(counts.index < now.year) & (counts >= 20)]
+    if partial:
+        eligible = counts[counts > 0]
+    else:
+        eligible = counts[counts >= 20]
+        if in_progress:
+            eligible = eligible[eligible.index < data_year]
     if len(eligible) < 2:
         return {**base, "message": "At least two past calendar years with 20 recorded votes each are required."}
     recent_year = int(eligible.index.max())
@@ -110,6 +122,12 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
          "baseline_divided": int(previous.divided.sum()), "baseline_resolutions": len(previous)},
         "A recorded vote is divided when the larger of Yes/No is below 90% of Yes+No. Each resolution has equal weight.")
 
+    from_extracts = int((pd.to_numeric(recent.rcid, errors="coerce") >= SYNTHETIC_ID_BASE).sum())
+    extract_note = (
+        f" {from_extracts} of the {len(recent)} recent roll calls come from DGACM's extracts, whose subject "
+        "terms differ from the UN Digital Library's: a recurring resolution takes the theme of its previous "
+        "vote, a new one is classified from its own terms, so part of any agenda shift can be labelling."
+    ) if from_extracts else ""
     rs, bs = recent.theme.value_counts(normalize=True), previous.theme.value_counts(normalize=True)
     themes = rs.index.union(bs.index)
     changes = rs.reindex(themes, fill_value=0) - bs.reindex(themes, fill_value=0)
@@ -117,7 +135,7 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
     add("agenda", "The UN as an institution", f"The largest agenda shift: {theme}",
         f"This theme accounts for {_percentage(rs.get(theme, 0))} of recorded votes, against {_percentage(bs.get(theme, 0))}: {changes[theme] * 100:+.1f} percentage points.",
         "The subjects placed before members help determine the alignment patterns we observe. An apparent geopolitical shift can partly be a change in the questions being asked.",
-        "Topic labels use documented keyword rules with one primary theme per resolution. Recorded-vote shares do not measure spending, operational activity or the UN's full agenda.",
+        "Topic labels use documented keyword rules with one primary theme per resolution. Recorded-vote shares do not measure spending, operational activity or the UN's full agenda." + extract_note,
         {"theme": theme, "recent_count": int((recent.theme == theme).sum()), "recent_total": len(recent),
          "baseline_count": int((previous.theme == theme).sum()), "baseline_total": len(previous)},
         "Resolution counts by primary theme / all recorded resolutions; largest absolute percentage-point change.")
@@ -137,7 +155,7 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
     result = {**base, "status": "ready", "title": "The world and the institution",
               "period": period, "recent_year": recent_year, "baseline_years": baseline_years,
               "findings": findings, "recent_resolutions": len(recent), "baseline_resolutions": len(previous),
-              "scope": "UN General Assembly recorded votes. These are descriptive comparisons, not causal tests or a representative sample of all UN activity. " + ("Current year-to-date is compared with the same calendar dates in prior years. " if partial else "Past calendar years are used. ") + "Source completeness is not assumed.",
+              "scope": "UN General Assembly recorded votes. These are descriptive comparisons, not causal tests or a representative sample of all UN activity. " + ("The latest year in the record is incomplete, so it is compared with the same calendar dates in prior years. " if partial else "Complete calendar years are used. ") + "Source completeness is not assumed.",
               "source_url": "https://github.com/Caliban-17/UN-Voting-Records",
               "coverage": [{"year": int(y), "resolutions": int(counts[y]),
                             "first_date": str(res.loc[res.year == y, "date"].min())[:10],

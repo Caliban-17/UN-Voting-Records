@@ -42,12 +42,13 @@ from typing import Iterable, Optional
 import pandas as pd
 import requests
 
+from src.config import SYNTHETIC_ID_BASE
+
 logger = logging.getLogger(__name__)
 
 REPO = "UNxml/GAresolutions"
 RAW_BASE = f"https://raw.githubusercontent.com/{REPO}/main/data_extract/"
 API_CONTENTS = f"https://api.github.com/repos/{REPO}/contents/data_extract"
-SYNTHETIC_ID_BASE = 2_000_000_000
 SOURCE_NOTE = "DGACM machine-readable resolutions (github.com/UNxml/GAresolutions)"
 
 # Raw or normalised spellings the extract uses that the CSV's own names do
@@ -147,8 +148,9 @@ def current_members(existing_df: Optional[pd.DataFrame], years_back: int = 2) ->
 
 
 def parse_adoption_date(text: str) -> Optional[str]:
-    """'29\\xa0October 2025' → '2025-10-29'; None when unparseable."""
-    cleaned = normalize_name(text).title()
+    """'29\\xa0October 2025' → '2025-10-29'; None when unparseable. Session 74
+    writes '2019-11-07 00:00:00', so a trailing time of day is dropped."""
+    cleaned = re.sub(r"\s+\d{1,2}:\d{2}(:\d{2})?$", "", normalize_name(text)).title()
     for fmt in ("%d %B %Y", "%d %b %Y", "%Y-%m-%d"):
         try:
             return datetime.strptime(cleaned, fmt).strftime("%Y-%m-%d")
@@ -233,10 +235,18 @@ def extract_to_rows(
     since_date: Optional[str] = None,
     member_names: Optional[dict[str, str]] = None,
     quarantined: Optional[list[dict]] = None,
+    known_symbols: Optional[set[str]] = None,
+    backfill_from: Optional[str] = None,
 ) -> list[dict]:
     """One CSV-schema row per (resolution, member) for every recorded vote in
     ``entries`` on or after ``since_date``. Raises ``ValueError`` naming any
     member the lookup cannot map, rather than dropping votes silently.
+
+    Upstream publishes out of order, so a date window alone loses votes: with
+    ``known_symbols`` (the resolutions already in the record) and
+    ``backfill_from``, a roll call dated before ``since_date`` but on or after
+    ``backfill_from`` is still returned when the record does not have it. That
+    is also what brings back a quarantined roll call once upstream corrects it.
 
     A roll call whose name lists disagree with its published tally, or that
     names a member twice, is quarantined: none of its rows are emitted (an
@@ -255,7 +265,13 @@ def extract_to_rows(
             logger.warning("Skipping extract entry without symbol/date: %r", entry.get("symbol"))
             continue
         if since_date and date < since_date:
-            continue
+            wanted = (
+                known_symbols is not None and backfill_from is not None
+                and date >= backfill_from and symbol not in known_symbols
+            )
+            if not wanted:
+                continue
+            logger.info("Backfilling %s (%s): published upstream after newer votes.", symbol, date)
         lists = {"Y": entry.get("MS_in_favour") or [], "N": entry.get("MS_against") or [], "A": entry.get("MS_abstaining") or []}
         totals = {
             "total_yes": _count(entry, "MS_in_favour_count", len(lists["Y"])),
@@ -326,16 +342,25 @@ def fetch_extract(name: str, session: Optional[requests.Session] = None, timeout
     return parse_jsonl(resp.text)
 
 
+def known_symbols(existing_df: Optional[pd.DataFrame]) -> set[str]:
+    """Resolution symbols the record already holds."""
+    if existing_df is None or existing_df.empty or "resolution" not in existing_df.columns:
+        return set()
+    return {str(s).strip() for s in existing_df["resolution"].dropna().unique()}
+
+
 def fetch_recent_votes(
     since_date: Optional[str],
     existing_df: Optional[pd.DataFrame],
     session: Optional[requests.Session] = None,
     quarantined: Optional[list[dict]] = None,
+    backfill_from: Optional[str] = None,
 ) -> pd.DataFrame:
     """Every recorded vote in the extracts dated on or after ``since_date``,
-    in the historical CSV's schema. Needs the existing CSV for the name→code
-    map and the current member list. Roll calls that fail validation are
-    appended to ``quarantined`` (see ``extract_to_rows``)."""
+    in the historical CSV's schema, plus any dated from ``backfill_from`` that
+    the existing CSV lacks. Needs the existing CSV for the name→code map and
+    the current member list. Roll calls that fail validation are appended to
+    ``quarantined`` (see ``extract_to_rows``)."""
     s = session or requests.Session()
     names = list_extract_files(session=s)
     logger.info("GitHub extracts available: %s", ", ".join(names))
@@ -349,6 +374,8 @@ def fetch_recent_votes(
     rows = extract_to_rows(
         entries, lookup, members, since_date=since_date,
         member_names=names_by_code(existing_df), quarantined=quarantined,
+        known_symbols=known_symbols(existing_df) if backfill_from else None,
+        backfill_from=backfill_from,
     )
     if not rows:
         return pd.DataFrame()
