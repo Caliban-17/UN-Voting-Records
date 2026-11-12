@@ -5,6 +5,7 @@ Registered by create_app() via register_middleware().
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import time
@@ -13,7 +14,7 @@ from collections import defaultdict, deque
 from functools import wraps
 from typing import Callable
 
-from flask import Flask, request, jsonify
+from flask import Flask, Response, request, jsonify
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +113,30 @@ def with_analysis_slot(func: Callable) -> Callable:
 # ── Registration ──────────────────────────────────────────────────────────────
 
 
+# ── Site password ─────────────────────────────────────────────────────────────
+
+# Everything is private when SITE_PASSWORD is set, except what a would-be
+# reader needs before they have it: signing up, confirming, unsubscribing.
+PUBLIC_PREFIXES = ("/subscribe", "/unsubscribe", "/health")
+
+
+def _password_required():
+    password = os.getenv("SITE_PASSWORD")
+    if not password or request.path.startswith(PUBLIC_PREFIXES) or request.method == "OPTIONS":
+        return None
+    given = request.authorization.password if request.authorization else None
+    if given is not None and hmac.compare_digest(given.encode(), password.encode()):
+        return None
+    if given is not None and _is_rate_limited(f"{_client_fingerprint()}:login"):
+        return jsonify({"error": "Too many attempts. Please wait before retrying."}), 429
+    response = Response("This site is private. Subscribe to the newsletter at /subscribe.", 401, mimetype="text/plain")
+    response.headers["WWW-Authenticate"] = 'Basic realm="UN-Scrupulous", charset="UTF-8"'
+    return response
+
+
 def register_middleware(app: Flask) -> None:
+    app.before_request(_password_required)
+
     @app.before_request
     def enforce_rate_limits():
         if not request.path.startswith("/api/"):

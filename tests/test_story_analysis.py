@@ -571,3 +571,20 @@ def test_an_extract_row_takes_the_theme_of_the_same_resolution_last_year():
     # No earlier vote under that title: it keeps its own classification.
     assert table.loc[SYNTHETIC_ID_BASE + 8, "theme"] == "Human rights"
     assert S._title_key("Programme budget for 2025") == S._title_key("Programme budget for 2026")
+
+
+def test_a_new_vote_is_compared_with_the_same_resolution_in_the_record():
+    from src.newsletter_story import choose, enrich, headline_for, short_name
+
+    register = [{"symbol": "A/RES/59/1", "date": "2004-11-03", "tally": {"yes": 1, "no": 3, "abstain": 0},
+                 "title": "Necessity of ending the embargo imposed by the United States of America against Cuba"},
+                {"symbol": "A/RES/59/2", "date": "2004-11-03", "tally": None, "title": "Multilingualism"},
+                {"symbol": "A/RES/59/3", "date": "2004-11-04", "tally": {"yes": 4, "no": 0, "abstain": 0},
+                 "title": "A resolution with no earlier vote"}]
+    cuba, quiet, new = enrich(register, _frame(), {"BBB": "Bravo"})
+    assert [(h["year"], h["yes"], h["no"]) for h in cuba["history"]] == [(2002, 3, 1), (2003, 2, 1)]
+    assert cuba["history"][-1]["against"] == ["Bravo"] and cuba["change"] == {"yes": -1, "no": 2, "abstain": 0}
+    assert "history" not in quiet and "history" not in new
+    assert short_name(cuba["title"]) == "the Cuba embargo"
+    lead, _ = choose([cuba, quiet, new])
+    assert lead["symbol"] == "A/RES/59/1" and "Cuba embargo" in headline_for(lead)

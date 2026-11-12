@@ -80,5 +80,7 @@ def create_app() -> Flask:
     flask_app.register_blueprint(jobs_bp, url_prefix="/api/jobs")
     flask_app.register_blueprint(story_bp, url_prefix="/api/story")
     flask_app.register_blueprint(pulse_bp)
+    from app.routes.subscribe import bp as subscribe_bp
+    flask_app.register_blueprint(subscribe_bp)
 
     return flask_app

@@ -23,9 +23,10 @@ def test_live_edition_roundtrips_and_all_formats_show_separate_coverage():
     for render in (render_html, render_markdown, render_text):
         output = render(restored)
         assert output == render(edition)
-        assert "2026-09-17" in output and "2026-07-28" in output
-        assert "152" in output and "A/RES/81/1" in output
-        assert "no country positions" in output
+        assert "17 September" in output and "28 July 2026" in output
+        assert "2026-09-17" not in output          # dates are written, not stamped
+        assert "152" in output and "docs.un.org/en/A/RES/81/1" in output
+        assert "position is inferred from a total" in output
         assert "Substack" not in output
         assert "ga81_resolutions.html" in output
 
@@ -87,7 +88,9 @@ def test_published_newsletter_routes_share_the_archived_edition(tmp_path, monkey
 
 def test_single_decision_headline_and_links_to_the_resolution():
     edition = build_current_edition(current_affairs(*evidence(), now=NOW), "2026-09-29")
-    assert edition.headline == "1 decision, 1 recorded vote"
+    # The headline is the vote, not a count of votes.
+    assert edition.headline == "Participation by the State of Palestine passes 152 to 3"
+    assert edition.lede.startswith("On 17 September the General Assembly voted 152 to 3, with 4 abstaining")
     html = render_html(edition)
     assert 'href="https://docs.un.org/en/A/RES/81/1"' in html
     assert "ga81_resolutions.html" in html
@@ -130,10 +133,10 @@ def test_watch_next_counts_every_recorded_decision_awaiting_roll_calls():
     older = {**decisions["records"][0], "symbol": "A/RES/80/300", "date": "2026-08-10"}
     decisions["records"].append(older)
     edition = build_current_edition(current_affairs(decisions, pulse, research, now=NOW), "2026-09-29")
-    assert "roll calls for 2 newer recorded resolutions are not yet" in render_text(edition)
+    assert "Country-by-country results for 2 recent votes are not yet published" in render_text(edition)
     # An edition archived before the ledger-wide count still renders.
     del edition.current_affairs["pending_rollcalls"]
-    assert "roll calls for 1 newer recorded resolution are not yet" in render_text(edition)
+    assert "not yet published" not in render_text(edition)
 
 
 def test_late_registrations_are_listed_apart_and_change_the_edition():
@@ -146,7 +149,98 @@ def test_late_registrations_are_listed_apart_and_change_the_edition():
     assert edition.content_hash != plain.content_hash
     for render in (render_html, render_markdown, render_text):
         output = render(edition)
-        assert "Registered late" in output and "Registered weeks after adoption" in output
-        assert "A/RES/80/311" in output and "registered 2026-09-25" in output
-    assert "Registered late" not in render_text(plain)
+        assert "Registered weeks after adoption" in output
+        assert "Published in the register only on 25 September" in output
+    assert "Published in the register only" not in render_text(plain)
     assert edition_from_dict(edition_to_dict(edition)) == edition
+
+
+# ── the edition as a story ───────────────────────────────────────────────────
+
+
+def _cuba(yes=130, no=17, abstain=25):
+    return {"symbol": "A/RES/81/7", "session": 81, "date": "2026-10-28", "adoption": "recorded_vote",
+            "title": "Necessity of ending the economic, commercial and financial embargo imposed by the "
+                     "United States of America against Cuba",
+            "tally": {"yes": yes, "no": no, "abstain": abstain},
+            "url": "https://docs.un.org/en/A/RES/81/7", "source_url": "https://example.org/register",
+            "history": [{"year": 2024, "yes": 187, "no": 2, "abstain": 1},
+                        {"year": 2025, "yes": 165, "no": 7, "abstain": 12,
+                         "against": ["Argentina", "Israel", "United States"]}],
+            "change": {"yes": yes - 165, "no": no - 7, "abstain": abstain - 12}}
+
+
+def _live(**extra):
+    quiet = {**_cuba(), "symbol": "A/RES/81/2", "title": "Multilingualism", "tally": None, "adoption": "without_vote"}
+    quiet.pop("history"), quiet.pop("change")
+    base = {"window_start": "2026-10-13", "window_end": "2026-11-11", "decisions": [_cuba(), quiet],
+            "recorded_count": 1, "without_vote_count": 1, "pending_rollcalls": 12,
+            "decision_data_through": "2026-10-28", "rollcall_data_through": "2026-07-28",
+            "research_period": "x", "headlines": [], "checked_at": "x", "sources": [],
+            "findings": [{"id": "alignment-USA", "title": "Agreement with the United States",
+                          "finding": "Other members sided with the United States in 10.0% of comparisons.",
+                          "interpretation": "i", "caveat": "A LONG CAVEAT", "evidence": {}}]}
+    return {**base, **extra}
+
+
+def test_headline_and_standfirst_lead_with_the_most_notable_vote_and_last_year():
+    edition = build_current_edition(_live(), "2026-11-11")
+    assert edition.headline == "Opposition on the Cuba embargo more than doubles: 17 vote against, up from 7"
+    assert "voted 130 to 17, with 25 abstaining" in edition.lede
+    assert "Last year: 165 to 7, with 12 abstaining. In 2024 it was 187 to 2." in edition.lede
+    assert "The 3 against in 2025 were Argentina, Israel and United States" in edition.lede
+    text = render_text(edition)
+    assert "28 October · 130 for, 17 against, 25 abstaining. Last year: 165 to 7, with 12 abstaining." in text
+    assert "Adopted without a vote: Multilingualism." in text
+    # No statistics from a handful of items, no per-finding caveats, one methods note.
+    assert "0 of " not in text and "A LONG CAVEAT" not in text
+    assert text.count("HOW TO READ THIS") == 1
+    assert "No country-by-country votes have been published since 28 July 2026, so this picture is unchanged." in text
+
+
+def test_each_chart_states_its_finding_and_survives_every_format():
+    edition = build_current_edition(_live(
+        calendar={"upcoming": [{"label": "Nuclear ban treaty", "typical_date": "4 December", "days_until": 23,
+                                "last": {"year": 2025, "yes": 119, "no": 45, "abstain": 12}}],
+                  "committees_until": "2026-11-30"},
+        vetoes_this_year=[{"date": "2026-10-30", "draft": "S/2026/868", "record": "S/PV.10260",
+                           "agenda": "The situation concerning Western Sahara", "members": ["Russia"]}],
+        bodies={"vetoed_drafts_by_year": {"2024": 7, "2025": 3, "2026": 1},
+                "vetoes_by_member": {"2024": {"Russia": 4, "United States": 4}, "2025": {"United States": 3},
+                                     "2026": {"Russia": 1}},
+                "council": [], "committee": [], "committee_totals": {}}), "2026-11-11")
+    html = render_html(edition)
+    assert html.count("<svg") == 3
+    assert "17 against, where there were 7" in html
+    assert "1 veto cast on 1 draft so far in 2026; the recent peak was 8 in 2024" in html
+    assert "1 recurring vote due in the next five weeks" in html
+    assert 'style="max-width' not in html.split("<svg", 1)[1].split(">", 1)[0]   # the PNG converter needs plain sizes
+    text = render_text(edition)
+    assert "[Chart: 17 against, where there were 7." in text
+    assert "1 draft resolution has been vetoed in 2026. The latest was on 30 October" in text
+    assert "Nuclear ban treaty, usually around 4 December. Last time: 119 to 45, with 12 abstaining." in text
+    assert edition_from_dict(edition_to_dict(edition)) == edition
+
+
+def test_council_committee_and_calendar_context_never_mints_an_edition():
+    plain = build_current_edition(_live(), "2026-11-11")
+    busy = build_current_edition(_live(bodies={"council": [], "committee": [], "committee_totals": {}},
+                                       calendar={"upcoming": []}), "2026-11-11")
+    assert busy.content_hash == plain.content_hash
+    veto = build_current_edition(_live(vetoes_this_year=[{"date": "2026-10-30", "draft": "S/1", "record": "r",
+                                                          "agenda": "Western Sahara", "members": ["Russia"]}]),
+                                 "2026-11-11")
+    assert veto.content_hash != plain.content_hash
+
+
+def test_an_edition_email_carries_charts_as_images_and_an_unsubscribe_link(monkeypatch):
+    from src import mailer
+    monkeypatch.setenv("SMTP_FROM", "editor@example.org")
+    edition = build_current_edition(_live(), "2026-11-11")
+    message = mailer.edition_message(edition, {"email": "reader@example.org", "token": "tok"}, "https://un.example")
+    assert message["Subject"] == edition.headline and message["To"] == "reader@example.org"
+    assert message["List-Unsubscribe"] == "<https://un.example/unsubscribe/tok>"
+    body = message.get_body(("html",)).get_content()
+    assert "<svg" not in body and 'src="cid:' in body and "https://un.example/unsubscribe/tok" in body
+    assert [p.get_content_type() for p in message.walk()].count("image/png") == 1
+    assert "https://un.example/unsubscribe/tok" in message.get_body(("plain",)).get_content()

@@ -44,6 +44,7 @@ flake8>=7.0          # lint gate in .github/workflows/tests.yml
 tqdm
 psutil
 flask==3.0.0
+gunicorn>=22.0
 flask-cors
 cairosvg>=2.7,<3
 pyyaml>=6.0          # workflow-consistency tests parse .github/workflows/*.yml
