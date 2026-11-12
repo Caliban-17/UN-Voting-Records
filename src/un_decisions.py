@@ -167,5 +167,6 @@ def current_affairs(decisions, pulse, research, now=None):
             "rollcall_data_through": research.get("data_through"),
             "research_period": research.get("period"),
             "findings": [f for f in research.get("findings", []) if f["id"] in ("alignment-USA", "division", "abstention")],
+            **({"blocs": research["blocs"]} if research.get("blocs") else {}),
             "headlines": headlines, "checked_at": decisions.get("checked_at"),
             "sources": decisions.get("sources", []) + pulse.get("sources", [])}

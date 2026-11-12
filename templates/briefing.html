@@ -29,6 +29,8 @@
       <div class="research-section-title"><h2 id="research-heading">The research briefing</h2><a href="/api/research-brief">Download the evidence as JSON ↗</a></div>
       {% if research.coverage_note %}<p class="research-notice research-warning">{{ research.coverage_note }}</p>{% endif %}
       {% if research.status != 'ready' %}<p class="research-notice">{{ research.message }}</p>{% endif %}
+      {% if blocs %}<figure class="research-map">{{ blocs.svg | safe }}
+        {% for line in blocs.lines %}<p>{{ line }}</p>{% endfor %}</figure>{% endif %}
       {% for section in ['The world through the voting record', 'The UN as an institution'] %}
       {% set findings = research.findings | selectattr('section', 'equalto', section) | list %}
       {% if findings %}<h3 class="research-group-title">{{ section }}</h3>

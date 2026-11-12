@@ -33,3 +33,4 @@
 .research-footer { border-top:2px solid var(--ink-900); padding-top:24px; line-height:1.7; color:var(--ink-500); font-size:12px; }
 @media(max-width:700px) { .research-shell { padding:20px 18px 40px; }.research-masthead { flex-direction:column; align-items:start; }.research-masthead nav { gap:14px; }.research-intro { padding-top:40px; }.research-grid { grid-template-columns:1fr; }.research-section-title { align-items:start; flex-direction:column; }.research-card { padding:22px; } }
 @media print { .research-filters,.research-masthead nav,#context { display:none; }.research-grid { display:block; }.research-card { break-inside:avoid; margin-bottom:20px; }.research-shell { max-width:none; padding:0; }.research-intro { padding-top:20px; } }
+.research-map { margin:8px 0 34px; max-width:900px; }.research-map svg { width:100%; height:auto; }.research-map p { font-size:14px; line-height:1.65; color:var(--ink-700); margin-top:10px; }
