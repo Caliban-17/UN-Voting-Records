@@ -92,9 +92,11 @@ def start_worker(dataframe_provider, reload_data=None):
                     attempted_with_data = False
                 checked = date_value(read_snapshot().get("checked_at"))
                 has_data = dataframe_provider() is not None
-                missing_research = has_data and not attempted_with_data and (
-                    not (data_dir() / "research.json").exists()
-                    or not (data_dir() / "newsletter.json").exists())
+                # The first pass after a start runs before the data has loaded,
+                # so it can only collect. As soon as the data is there, do one
+                # full pass: otherwise a deploy that changes what the research
+                # or the edition contains shows nothing new for half an hour.
+                missing_research = has_data and not attempted_with_data
                 if checked is None or changed or missing_research or (datetime.now(UTC) - checked).total_seconds() >= interval:
                     attempted_with_data = attempted_with_data or has_data
                     try:

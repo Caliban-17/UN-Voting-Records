@@ -59,6 +59,14 @@ def create_app() -> Flask:
     ]
     CORS(flask_app, resources={r"/api/*": {"origins": allowed_origins or "*"}})
 
+    # Behind our own proxy (Railway's edge), believe its forwarded scheme and
+    # host: without this every absolute link the app writes (feeds, emails)
+    # says http:// although the site is served over https.
+    proxies = max(0, int(os.getenv("TRUSTED_PROXY_COUNT", "0")))
+    if proxies:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        flask_app.wsgi_app = ProxyFix(flask_app.wsgi_app, x_for=0, x_proto=proxies, x_host=proxies)
+
     # ── middleware ────────────────────────────────────────────────────────────
     from app.middleware import register_middleware
 

@@ -134,6 +134,49 @@ def _mtime(path):
         return 0.0
 
 
+def recent_editions(limit=30):
+    """Archived editions, newest first. Archives are written once, so mtime
+    orders them by first publication: only the newest are parsed."""
+    editions = []
+    for path in sorted((data_dir() / "newsletters").glob("*.json"), key=_mtime, reverse=True)[:limit * 2]:
+        try:
+            editions.append(json.loads(path.read_text()))
+        except (OSError, ValueError):
+            continue
+    return sorted(editions, key=lambda e: (e["edition_date"], e["content_hash"]), reverse=True)[:limit]
+
+
+ARCHIVE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico">
+<link rel="alternate" type="application/rss+xml" title="UN-Scrupulous" href="/newsletter/feed.xml">
+<title>UN-Scrupulous: past editions</title></head>
+<body style="margin:0;background:#f3f1eb;padding:28px 12px;font-family:Georgia,serif;color:#102c35">
+<main style="max-width:688px;margin:0 auto;background:#fffdf8;padding:28px 24px">
+<p style="font:12px Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#5d6f73;border-bottom:3px solid #102c35;padding-bottom:14px;margin:0">
+<a href="/briefing" style="color:inherit;text-decoration:none">UN-Scrupulous</a> · Past editions</p>
+{items}
+<p style="font:13px/1.55 Arial,sans-serif;color:#5d6f73;border-top:1px solid #cbd5d3;padding-top:14px;margin-top:30px">
+<a href="/newsletter" style="color:inherit">Latest edition</a> · <a href="/subscribe" style="color:inherit">Get it by email</a> ·
+<a href="/newsletter/feed.xml" style="color:inherit">Feed for RSS readers</a></p>
+</main></body></html>"""
+
+
+@bp.get("/newsletter/archive")
+def newsletter_archive():
+    """Past editions as a page to read; the feed is for feed readers."""
+    from html import escape
+    from src.newsletter_story import day
+    items = "".join(
+        f'<article style="margin:26px 0"><p style="font:12.5px Arial,sans-serif;color:#5d6f73;margin:0 0 4px">{escape(day(e["edition_date"], year=True))}</p>'
+        f'<h2 style="font-size:22px;line-height:1.2;margin:0 0 6px"><a href="/newsletter/editions/{escape(e["content_hash"])}" '
+        f'style="color:#102c35;text-decoration:none">{escape(e["headline"])}</a></h2>'
+        f'<p style="font-size:15.5px;line-height:1.55;color:#243d44;margin:0">{escape(e["lede"][:320])}{"…" if len(e["lede"]) > 320 else ""}</p></article>'
+        for e in recent_editions(60))
+    return Response(ARCHIVE.format(items=items or '<p style="font-size:17px;margin:26px 0">No editions have been published yet.</p>'),
+                    mimetype="text/html")
+
+
 @bp.get("/newsletter/feed.xml")
 def newsletter_feed():
     root = ET.Element("rss", version="2.0")
@@ -141,15 +184,7 @@ def newsletter_feed():
     ET.SubElement(channel, "title").text = "UN-Scrupulous | The UN newsletter"
     ET.SubElement(channel, "link").text = url_for("pulse.newsletter", _external=True)
     ET.SubElement(channel, "description").text = "Automatically published decisions, world affairs and political research."
-    # Archives are written once, so mtime orders them by first publication:
-    # parse only the newest instead of every edition ever archived.
-    editions = []
-    for path in sorted((data_dir() / "newsletters").glob("*.json"), key=_mtime, reverse=True)[:60]:
-        try:
-            editions.append(json.loads(path.read_text()))
-        except (OSError, ValueError):
-            continue
-    for edition in sorted(editions, key=lambda e: (e["edition_date"], e["content_hash"]), reverse=True)[:30]:
+    for edition in recent_editions():
         node = ET.SubElement(channel, "item")
         ET.SubElement(node, "title").text = edition["headline"]
         ET.SubElement(node, "guid", isPermaLink="false").text = edition["content_hash"]

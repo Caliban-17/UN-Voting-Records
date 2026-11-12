@@ -244,3 +244,20 @@ def test_an_edition_email_carries_charts_as_images_and_an_unsubscribe_link(monke
     assert "<svg" not in body and 'src="cid:' in body and "https://un.example/unsubscribe/tok" in body
     assert [p.get_content_type() for p in message.walk()].count("image/png") == 1
     assert "https://un.example/unsubscribe/tok" in message.get_body(("plain",)).get_content()
+
+
+def test_past_editions_page_lists_editions_and_feed_links_are_https_behind_the_proxy(tmp_path, monkeypatch):
+    import xml.etree.ElementTree as ET
+    from app import create_app
+    monkeypatch.setenv("PULSE_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TRUSTED_PROXY_COUNT", "1")
+    monkeypatch.delenv("SITE_PASSWORD", raising=False)
+    result = publish_newsletter(None, *evidence(), directory=tmp_path, now=NOW)
+    with create_app().test_client() as client:
+        archive = client.get("/newsletter/archive")
+        assert archive.status_code == 200 and b"Participation by the State of Palestine passes 152 to 3" in archive.data
+        assert f"/newsletter/editions/{result['content_hash']}".encode() in archive.data and b"29 September 2026" in archive.data
+        proxied = {"X-Forwarded-Proto": "https", "X-Forwarded-Host": "un.example"}
+        feed = ET.fromstring(client.get("/newsletter/feed.xml", headers=proxied).data)
+        assert feed.find("channel/link").text == "https://un.example/newsletter"
+        assert feed.find("channel/item/link").text.startswith("https://un.example/newsletter/editions/")
