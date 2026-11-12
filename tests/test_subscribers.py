@@ -179,3 +179,21 @@ def test_stale_queued_mail_is_dropped_not_sent_late(tmp_path):
     subscribers.enqueue(b"old", tmp_path, now - timedelta(days=8))
     fresh = subscribers.enqueue(b"fresh", tmp_path, now)
     assert [m["id"] for m in subscribers.pending_mail(tmp_path, now=now)] == [fresh]
+
+
+def test_unsubscribing_cancels_mail_still_in_the_queue(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAIL_TRANSPORT", "outbox")
+    monkeypatch.setenv("SMTP_FROM", "editor@example.org")
+    monkeypatch.setenv("PULSE_DATA_DIR", str(tmp_path))
+    leaving = subscribers.confirm(subscribers.add("leaving@example.org", tmp_path)["token"], tmp_path)
+    subscribers.confirm(subscribers.add("staying@example.org", tmp_path)["token"], tmp_path)
+    for address in ("Leaving@Example.org", "staying@example.org"):
+        message = mailer._envelope(address, "An edition")
+        message.set_content("body")
+        mailer._send([message])
+    assert len(subscribers.pending_mail(tmp_path)) == 2
+    assert subscribers.unsubscribe(leaving["token"], tmp_path)
+    queue = subscribers.pending_mail(tmp_path)
+    assert len(queue) == 1 and b"staying@example.org" in queue[0]["message"]
+    assert subscribers.acknowledge([], [], tmp_path) == {"cancelled": 1, "pending": 1}
+    assert not subscribers.unsubscribe("no-such-token", tmp_path)

@@ -32,7 +32,10 @@ def _connect(directory=None) -> sqlite3.Connection:
         created_at TEXT NOT NULL, confirmed_at TEXT, last_sent_hash TEXT, last_sent_at TEXT)""")
     db.execute("""CREATE TABLE IF NOT EXISTS outbox (
         id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, message BLOB NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, sent_at TEXT)""")
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, sent_at TEXT,
+        recipient TEXT)""")
+    if "recipient" not in {row["name"] for row in db.execute("PRAGMA table_info(outbox)")}:
+        db.execute("ALTER TABLE outbox ADD COLUMN recipient TEXT")
     return db
 
 
@@ -81,8 +84,16 @@ def confirm(token: str, directory=None, now: datetime | None = None) -> dict | N
 
 
 def unsubscribe(token: str, directory=None) -> bool:
+    """Unsubscribe, and cancel anything still queued for that address: the
+    page promises no more emails, including ones waiting to be sent."""
     with _connect(directory) as db:
-        return db.execute("UPDATE subscribers SET status = 'unsubscribed' WHERE token = ?", (token,)).rowcount > 0
+        row = db.execute("SELECT email FROM subscribers WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return False
+        db.execute("UPDATE subscribers SET status = 'unsubscribed' WHERE token = ?", (token,))
+        db.execute("UPDATE outbox SET status = 'cancelled', message = x'' WHERE status = 'pending' AND recipient = ?",
+                   (row["email"],))
+        return True
 
 
 def confirmed(directory=None) -> list[dict]:
@@ -107,10 +118,10 @@ OUTBOX_KEEP_DAYS = 7
 OUTBOX_MAX_ATTEMPTS = 20
 
 
-def enqueue(raw: bytes, directory=None, now: datetime | None = None) -> int:
+def enqueue(raw: bytes, directory=None, now: datetime | None = None, recipient: str | None = None) -> int:
     with _connect(directory) as db:
-        return db.execute("INSERT INTO outbox (created_at, message) VALUES (?, ?)",
-                          (stamp(now or datetime.now(UTC)), raw)).lastrowid
+        return db.execute("INSERT INTO outbox (created_at, message, recipient) VALUES (?, ?, ?)",
+                          (stamp(now or datetime.now(UTC)), raw, (recipient or "").strip().lower() or None)).lastrowid
 
 
 def pending_mail(directory=None, limit: int = 40, now: datetime | None = None) -> list[dict]:
@@ -121,6 +132,9 @@ def pending_mail(directory=None, limit: int = 40, now: datetime | None = None) -
     with _connect(directory) as db:
         db.execute("UPDATE outbox SET status = 'expired' WHERE status = 'pending' AND (created_at < ? OR attempts >= ?)",
                    (cutoff, OUTBOX_MAX_ATTEMPTS))
+        # Belt and braces: never hand out mail for an address that has unsubscribed.
+        db.execute("UPDATE outbox SET status = 'cancelled', message = x'' WHERE status = 'pending' AND recipient IN "
+                   "(SELECT email FROM subscribers WHERE status = 'unsubscribed')")
         return [dict(r) for r in db.execute(
             "SELECT id, message FROM outbox WHERE status = 'pending' ORDER BY id LIMIT ?", (limit,))]
 

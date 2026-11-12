@@ -56,19 +56,29 @@ jobs:
           context = ssl.create_default_context()
           server = (smtplib.SMTP_SSL(os.environ["SMTP_HOST"], port, context=context, timeout=30) if port == 465
                     else smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=30))
-          sent, failed = [], []
+          import time
+          started, sent, failed, left = time.monotonic(), 0, 0, 0
           with server:
               if port != 465:
                   server.starttls(context=context)
               server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
               for item in queue:
+                  # Stop well inside the job's time limit; the rest waits for the next run.
+                  if time.monotonic() - started > 300:
+                      left += 1
+                      continue
                   try:
                       message = email.message_from_bytes(base64.b64decode(item["mime"]), policy=email.policy.SMTP)
                       server.send_message(message)
-                      sent.append(item["id"])
+                      outcome = {"sent": [item["id"]]}
+                      sent += 1
                   except Exception as exc:  # never print the message or its recipient
-                      failed.append(item["id"])
+                      outcome = {"failed": [item["id"]]}
+                      failed += 1
                       print(f"one message failed: {type(exc).__name__}")
-          print(f"sent {len(sent)}, failed {len(failed)}", call("POST", {"sent": sent, "failed": failed})["queue"])
+                  # Report each message as it goes: a cancelled run must not
+                  # resend what it already delivered or lose a failure count.
+                  call("POST", outcome)
+          print(f"sent {sent}, failed {failed}, left for the next run {left}")
           sys.exit(1 if failed and not sent else 0)
           PY

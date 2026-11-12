@@ -96,7 +96,7 @@ def _send(messages: list[EmailMessage]) -> list[bool]:
     queued message counts as handed over: the queue retries it from there."""
     if transport() == "outbox":
         for message in messages:
-            subscribers.enqueue(message.as_bytes())
+            subscribers.enqueue(message.as_bytes(), recipient=str(message["To"] or ""))
         return [True] * len(messages)
     current = settings()
     host, port = current["SMTP_HOST"], int(current["SMTP_PORT"] or "465")
