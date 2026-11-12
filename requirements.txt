@@ -26,7 +26,7 @@ pytest-playwright>=0.4.4
 
 # Data Performance
 fastparquet==2024.2.0
-pyarrow>=15.0.0
+pyarrow>=15.0.0,<18   # newer releases need NumPy 2; the compact cache read uses it
 
 # Configuration & Scheduling
 python-dotenv==1.0.1

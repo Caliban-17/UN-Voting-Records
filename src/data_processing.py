@@ -109,24 +109,48 @@ def share_repeated_strings(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _compact_pyarrow(path: str) -> tuple[pd.DataFrame, list[str]]:
+    import pyarrow.parquet as pq
+
+    schema = pq.read_schema(path)
+    text = [f.name for f in schema if str(f.type) in ("string", "large_string")]
+    df = pd.read_parquet(path, engine="pyarrow", read_dictionary=text,
+                         columns=[f.name for f in schema if f.name != "topics"])
+    return df, list(schema.names)
+
+
+def _compact_fastparquet(path: str) -> tuple[pd.DataFrame, list[str]]:
+    import fastparquet
+
+    source = fastparquet.ParquetFile(path)
+    names = list(source.columns)
+    text = [name for name in names if name != "topics" and str(source.dtypes.get(name)) == "object"]
+    df = source.to_pandas(columns=[n for n in names if n != "topics"], categories=text)
+    return df, names
+
+
 def read_parquet_compact(path: str) -> pd.DataFrame:
     """Read the cache without ever holding one string per cell: text columns
     come back dictionary-encoded and are widened to plain object columns whose
-    rows share each distinct value. About half the memory of a plain read
-    (roughly 580 MB against 1.15 GB), with identical values and dtypes."""
+    rows share each distinct value. Identical values and dtypes to a plain
+    read at roughly two-thirds of the peak memory. Uses whichever parquet
+    engine works (the pinned NumPy rules out pyarrow in CI and Docker)."""
+    for reader in (_compact_pyarrow, _compact_fastparquet):
+        try:
+            df, names = reader(path)
+            break
+        except Exception as exc:
+            logger.info("%s unavailable for the compact read: %s", reader.__name__, exc)
+    else:
+        return pd.read_parquet(path)
     try:
-        import pyarrow.parquet as pq
-
-        schema = pq.read_schema(path)
-        text = [f.name for f in schema if str(f.type) in ("string", "large_string")]
-        df = pd.read_parquet(path, engine="pyarrow", read_dictionary=text,
-                             columns=[f.name for f in schema if f.name != "topics"])
-        for column in text:
-            df[column] = df[column].astype(object)
-        if "topics" in schema.names:
+        for column in df.columns:
+            if isinstance(df[column].dtype, pd.CategoricalDtype):
+                df[column] = df[column].astype(object)
+        if "topics" in names:
             df["topics"] = [[]] * len(df)
-            df = share_repeated_strings(df)[list(schema.names)]
-        return df
+            df = share_repeated_strings(df)
+        return df[names]
     except Exception as exc:  # any surprise in the cache: fall back to the plain read
         logger.warning("Compact parquet read failed (%s); using the plain read.", exc)
         return pd.read_parquet(path)
