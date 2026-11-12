@@ -72,7 +72,7 @@ def test_editions_go_out_at_most_weekly_and_never_twice(tmp_path, monkeypatch):
     subscribers.confirm(row["token"], tmp_path)
     batches = []
     monkeypatch.setattr(mailer, "edition_message", lambda edition, subscriber, base: (edition.content_hash, subscriber["email"]))
-    monkeypatch.setattr(mailer, "_send", lambda messages: batches.append(messages) or len(messages))
+    monkeypatch.setattr(mailer, "_send", lambda messages: batches.append(messages) or [True] * len(messages))
     now = datetime(2026, 11, 12, tzinfo=timezone.utc)
     first, second = SimpleNamespace(content_hash="a" * 64), SimpleNamespace(content_hash="b" * 64)
     assert mailer.deliver_if_due(first, tmp_path, now) == 1
@@ -82,3 +82,25 @@ def test_editions_go_out_at_most_weekly_and_never_twice(tmp_path, monkeypatch):
     assert [b[0][0][0] for b in batches] == ["a", "b"]
     monkeypatch.delenv("SMTP_HOST")
     assert mailer.deliver_if_due(first, tmp_path, now + timedelta(days=60)) == 0      # unconfigured: silent no-op
+
+
+def test_a_rejected_recipient_is_retried_without_resending_to_the_rest(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    for key, value in (("SMTP_HOST", "smtp.example.org"), ("SMTP_USER", "u"), ("SMTP_PASS", "p"), ("SMTP_FROM", "e@example.org")):
+        monkeypatch.setenv(key, value)
+    for email in ("a@example.org", "b@example.org"):
+        subscribers.confirm(subscribers.add(email, tmp_path)["token"], tmp_path)
+    monkeypatch.setattr(mailer, "edition_message", lambda edition, subscriber, base: subscriber["email"])
+    batches = []
+    reject = {"b@example.org"}
+    monkeypatch.setattr(mailer, "_send", lambda messages: batches.append(messages) or [m not in reject for m in messages])
+    edition, now = SimpleNamespace(content_hash="c" * 64), datetime(2026, 11, 12, tzinfo=timezone.utc)
+    assert mailer.deliver_if_due(edition, tmp_path, now) == 1
+    assert not (tmp_path / "delivery.json").exists()            # not delivered while someone is owed it
+    reject.clear()
+    assert mailer.deliver_if_due(edition, tmp_path, now + timedelta(minutes=30)) == 1
+    assert batches == [["a@example.org", "b@example.org"], ["b@example.org"]]
+    assert (tmp_path / "delivery.json").exists()
+    assert mailer.deliver_if_due(edition, tmp_path, now + timedelta(hours=1)) == 0

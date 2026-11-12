@@ -588,3 +588,17 @@ def test_a_new_vote_is_compared_with_the_same_resolution_in_the_record():
     assert short_name(cuba["title"]) == "the Cuba embargo"
     lead, _ = choose([cuba, quiet, new])
     assert lead["symbol"] == "A/RES/59/1" and "Cuba embargo" in headline_for(lead)
+
+
+def test_the_standfirst_only_says_unpublished_when_the_record_lacks_the_vote():
+    from src.newsletter_story import enrich, standfirst
+
+    title = "Necessity of ending the embargo imposed by the United States of America against Cuba"
+    pending = {"symbol": "A/RES/59/1", "date": "2004-11-03", "tally": {"yes": 1, "no": 3, "abstain": 0}, "title": title}
+    text = standfirst(enrich([pending], _frame(), {})[0], None)
+    assert "not yet published" in text and "against in 2003 were BBB" in text
+    loaded = {**pending, "symbol": "A/RES/58/1", "date": "2003-11-05", "tally": {"yes": 2, "no": 1, "abstain": 0}}
+    item = enrich([loaded], _frame(), {"BBB": "Bravo"})[0]
+    assert item["against"] == ["Bravo"]
+    text = standfirst(item, None)
+    assert "not yet published" not in text and "Voting against this time: Bravo." in text

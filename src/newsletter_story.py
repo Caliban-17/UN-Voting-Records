@@ -77,8 +77,13 @@ def vote_history(df: pd.DataFrame, title: str, before: str, names: dict | None =
 def enrich(decisions: list[dict], df: pd.DataFrame | None, names: dict | None = None) -> list[dict]:
     """Attach each recorded decision's earlier votes and its change since the last."""
     out = []
+    in_record = set(df["resolution"].dropna().astype(str).str.strip()) if df is not None and "resolution" in df.columns else set()
     for item in decisions:
         item = dict(item)
+        if item.get("tally") and item["symbol"] in in_record:
+            # The country-level record already holds this vote: name its opponents.
+            rows = df[(df["resolution"].astype(str).str.strip() == item["symbol"]) & (df["vote"] == -1)]
+            item["against"] = sorted((names or {}).get(c, c) for c in rows["country_identifier"].unique())
         if df is not None and item.get("tally"):
             history = vote_history(df, item["title"], item["date"], names)[-8:]
             if history:
@@ -146,7 +151,11 @@ def standfirst(lead: dict, second: dict | None) -> str:
         if earlier and (earlier[-1]["yes"], earlier[-1]["no"]) != (history[-1]["yes"], history[-1]["no"]):
             text += f" In {earlier[-1]['year']} it was {earlier[-1]['yes']} to {earlier[-1]['no']}."
         against = history[-1].get("against") or []
-        if 0 < len(against) <= 8:
+        now_against = lead.get("against")
+        if now_against is not None and 0 < len(now_against) <= 12:
+            text += f" Voting against this time: {_list(now_against)}."
+        elif now_against is None and 0 < len(against) <= 8:
+            # Only when the record really lacks this vote may we say so.
             text += (f" The {len(against)} against in {history[-1]['year']} were {_list(against)}; "
                      "this year's country-by-country record is not yet published.")
     if second:

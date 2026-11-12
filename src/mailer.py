@@ -38,11 +38,13 @@ def min_days_between_editions() -> int:
     return max(1, int(os.getenv("NEWSLETTER_MIN_DAYS", "7")))
 
 
-def _send(messages: list[EmailMessage]) -> int:
+def _send(messages: list[EmailMessage]) -> list[bool]:
+    """Send each message; one flag per message, so a rejected recipient can be
+    retried without the others being sent the edition twice."""
     host, port = os.environ["SMTP_HOST"], int(os.getenv("SMTP_PORT") or "465")
     context = ssl.create_default_context()
     server = smtplib.SMTP_SSL(host, port, context=context, timeout=30) if port == 465 else smtplib.SMTP(host, port, timeout=30)
-    sent = 0
+    sent = []
     with server:
         if port != 465:
             server.starttls(context=context)
@@ -50,9 +52,10 @@ def _send(messages: list[EmailMessage]) -> int:
         for message in messages:
             try:
                 server.send_message(message)
-                sent += 1
+                sent.append(True)
             except smtplib.SMTPException:
                 logger.exception("Could not send to one recipient; continuing")
+                sent.append(False)
     return sent
 
 
@@ -80,7 +83,7 @@ def send_confirmation(email: str, token: str, base: str | None = None) -> bool:
     if not configured():
         logger.warning("SMTP is not configured; the confirmation for a new sign-up was not sent")
         return False
-    return _send([confirmation_message(email, token, base or public_url())]) == 1
+    return all(_send([confirmation_message(email, token, base or public_url())]))
 
 
 def edition_message(edition, subscriber: dict, base: str) -> EmailMessage:
@@ -107,11 +110,11 @@ def send_edition(edition, recipients: list[dict], directory=None, base: str | No
     due = [s for s in recipients if s.get("last_sent_hash") != edition.content_hash]
     if not due or not configured():
         return 0
-    sent = _send([edition_message(edition, s, base) for s in due])
-    if sent == len(due):
-        for s in due:
-            subscribers.mark_sent(s["email"], edition.content_hash, directory)
-    return sent
+    outcome = _send([edition_message(edition, s, base) for s in due])
+    for subscriber, delivered in zip(due, outcome):
+        if delivered:
+            subscribers.mark_sent(subscriber["email"], edition.content_hash, directory)
+    return sum(outcome)
 
 
 def deliver_if_due(edition, directory=None, now: datetime | None = None) -> int:
@@ -134,7 +137,12 @@ def deliver_if_due(edition, directory=None, now: datetime | None = None) -> int:
     if not recipients:
         return 0
     sent = send_edition(edition, recipients, directory)
+    # The edition counts as delivered only once nobody is still owed it. A
+    # recipient the server rejected stays unmarked, so the next pass retries
+    # just them; recording the hash now would skip them for good.
+    owed = [s for s in subscribers.confirmed(directory) if s.get("last_sent_hash") != edition.content_hash]
+    if sent and not owed:
+        atomic_json(path, {"content_hash": edition.content_hash, "sent_at": stamp(now), "recipients": len(recipients)})
     if sent:
-        atomic_json(path, {"content_hash": edition.content_hash, "sent_at": stamp(now), "recipients": sent})
-        logger.info("Edition %s emailed to %d subscribers", edition.content_hash[:12], sent)
+        logger.info("Edition %s emailed to %d subscribers (%d still owed)", edition.content_hash[:12], sent, len(owed))
     return sent
