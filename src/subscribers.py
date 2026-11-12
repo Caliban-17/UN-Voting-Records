@@ -30,6 +30,9 @@ def _connect(directory=None) -> sqlite3.Connection:
     db.execute("""CREATE TABLE IF NOT EXISTS subscribers (
         email TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, status TEXT NOT NULL,
         created_at TEXT NOT NULL, confirmed_at TEXT, last_sent_hash TEXT, last_sent_at TEXT)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, message BLOB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, sent_at TEXT)""")
     return db
 
 
@@ -96,3 +99,39 @@ def mark_sent(email: str, content_hash: str, directory=None, now: datetime | Non
 def counts(directory=None) -> dict:
     with _connect(directory) as db:
         return {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM subscribers GROUP BY status")}
+
+
+# ── outbox: mail waiting for a sender that can reach the mail server ─────────
+
+OUTBOX_KEEP_DAYS = 7
+OUTBOX_MAX_ATTEMPTS = 20
+
+
+def enqueue(raw: bytes, directory=None, now: datetime | None = None) -> int:
+    with _connect(directory) as db:
+        return db.execute("INSERT INTO outbox (created_at, message) VALUES (?, ?)",
+                          (stamp(now or datetime.now(UTC)), raw)).lastrowid
+
+
+def pending_mail(directory=None, limit: int = 40, now: datetime | None = None) -> list[dict]:
+    """Queued messages, oldest first. A message nobody could send for a week,
+    or that failed twenty times, is dropped rather than sent stale."""
+    from datetime import timedelta
+    cutoff = stamp((now or datetime.now(UTC)) - timedelta(days=OUTBOX_KEEP_DAYS))
+    with _connect(directory) as db:
+        db.execute("UPDATE outbox SET status = 'expired' WHERE status = 'pending' AND (created_at < ? OR attempts >= ?)",
+                   (cutoff, OUTBOX_MAX_ATTEMPTS))
+        return [dict(r) for r in db.execute(
+            "SELECT id, message FROM outbox WHERE status = 'pending' ORDER BY id LIMIT ?", (limit,))]
+
+
+def acknowledge(sent: list[int], failed: list[int], directory=None, now: datetime | None = None) -> dict:
+    """Record what the sender did. A sent message is kept only as a row
+    without its body, so no address lingers in the queue."""
+    with _connect(directory) as db:
+        for ident in sent:
+            db.execute("UPDATE outbox SET status = 'sent', sent_at = ?, message = x'' WHERE id = ? AND status = 'pending'",
+                       (stamp(now or datetime.now(UTC)), int(ident)))
+        for ident in failed:
+            db.execute("UPDATE outbox SET attempts = attempts + 1 WHERE id = ? AND status = 'pending'", (int(ident),))
+        return {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM outbox GROUP BY status")}

@@ -164,5 +164,37 @@ def provision_mail():
     return jsonify(result)
 
 
+def _sender_authorised() -> bool:
+    import hmac
+    import os
+
+    token = os.getenv("PROVISION_TOKEN") or ""
+    given = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    return bool(token) and hmac.compare_digest(given.encode(), token.encode())
+
+
+@bp.get("/admin/mail/outbox")
+def outbox():
+    """Queued messages for the send-mail workflow (base64 MIME). Token only."""
+    import base64
+
+    if not _sender_authorised():
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify({"messages": [{"id": m["id"], "mime": base64.b64encode(m["message"]).decode()}
+                                 for m in subscribers.pending_mail()]})
+
+
+@bp.post("/admin/mail/outbox")
+def outbox_acknowledge():
+    if not _sender_authorised():
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        sent, failed = [int(i) for i in data.get("sent", [])], [int(i) for i in data.get("failed", [])]
+    except (TypeError, ValueError):
+        return jsonify({"error": "sent and failed must be lists of ids"}), 400
+    return jsonify({"queue": subscribers.acknowledge(sent, failed)})
+
+
 def _client_ok() -> bool:
     return subscribers.allow_signup("provision:" + _client_fingerprint())

@@ -144,3 +144,38 @@ def test_a_rejected_recipient_is_retried_without_resending_to_the_rest(tmp_path,
     assert batches == [["a@example.org", "b@example.org"], ["b@example.org"]]
     assert (tmp_path / "delivery.json").exists()
     assert mailer.deliver_if_due(edition, tmp_path, now + timedelta(hours=1)) == 0
+
+
+def test_outbox_mode_queues_mail_for_the_workflow_to_send(site, monkeypatch):
+    import base64
+    import email
+
+    client, _, directory = site
+    monkeypatch.setenv("MAIL_TRANSPORT", "outbox")
+    monkeypatch.setenv("PROVISION_TOKEN", "hand-off")
+    monkeypatch.setenv("SMTP_FROM", "editor@example.org")
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS"):
+        monkeypatch.delenv(key, raising=False)
+    assert mailer.configured()                                   # only a sender address is needed to queue
+    assert mailer._send([mailer.confirmation_message("reader@example.org", "tok", "https://un.example")]) == [True]
+    assert client.get("/admin/mail/outbox").status_code == 403
+    auth = {"Authorization": "Bearer hand-off"}
+    queue = client.get("/admin/mail/outbox", headers=auth).json["messages"]
+    assert len(queue) == 1
+    message = email.message_from_bytes(base64.b64decode(queue[0]["mime"]))
+    assert message["To"] == "reader@example.org" and "confirm/tok" in message.get_payload()
+    # A failure leaves it queued; a success empties the row of its content.
+    assert client.post("/admin/mail/outbox", json={"failed": [queue[0]["id"]]}, headers=auth).json["queue"] == {"pending": 1}
+    assert len(client.get("/admin/mail/outbox", headers=auth).json["messages"]) == 1
+    assert client.post("/admin/mail/outbox", json={"sent": [queue[0]["id"]]}, headers=auth).json["queue"] == {"sent": 1}
+    assert client.get("/admin/mail/outbox", headers=auth).json["messages"] == []
+    assert subscribers.pending_mail(directory) == []
+    assert client.post("/admin/mail/outbox", json={"sent": ["x"]}, headers=auth).status_code == 400
+
+
+def test_stale_queued_mail_is_dropped_not_sent_late(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    subscribers.enqueue(b"old", tmp_path, now - timedelta(days=8))
+    fresh = subscribers.enqueue(b"fresh", tmp_path, now)
+    assert [m["id"] for m in subscribers.pending_mail(tmp_path, now=now)] == [fresh]

@@ -38,7 +38,10 @@ from a separate process). With `SITE_PASSWORD` set, every page redirects to `/lo
 (a signed session cookie; the page also offers the newsletter sign-up) except
 `/subscribe`, `/unsubscribe` and `/health`. SMTP settings come from `SMTP_*` or from the
 file written by `POST /admin/mail`, which `provision-mail.yml` calls with the repository's
-secrets and the shared `PROVISION_TOKEN`. The parquet cache is read dictionary-encoded
+secrets and the shared `PROVISION_TOKEN`. Railway blocks outbound SMTP, so the site
+runs with `MAIL_TRANSPORT=outbox`: messages are queued in SQLite and `send-mail.yml`
+(every five minutes) fetches the queue from `/admin/mail/outbox` and sends it. That
+workflow's log is public: it must never print a message or an address. The parquet cache is read dictionary-encoded
 (`read_parquet_compact`): same values and dtypes, about a third less peak memory. Sign-up is double opt-in
 (`src/subscribers.py`, SQLite beside the pulse state); `src/mailer.py` emails a changed
 edition to confirmed subscribers at most every `NEWSLETTER_MIN_DAYS` (7) via `SMTP_*`.

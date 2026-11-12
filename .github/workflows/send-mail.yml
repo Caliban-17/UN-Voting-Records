@@ -1,0 +1,74 @@
+name: Send queued newsletter mail
+
+# The hosted site cannot open an SMTP connection (its host blocks the ports),
+# so it queues each message and this workflow, which holds the mail secrets,
+# delivers the queue. Nothing about a message is printed: this log is public.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Base URL of the hosted site"
+        default: "https://un-voting-records-production.up.railway.app"
+
+concurrency:
+  group: send-mail
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Deliver the queue
+        env:
+          SITE: ${{ inputs.site || 'https://un-voting-records-production.up.railway.app' }}
+          TOKEN: ${{ secrets.RAILWAY_PROVISION_TOKEN }}
+          SMTP_HOST: ${{ secrets.ATLAS_SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.ATLAS_SMTP_PORT }}
+          SMTP_USER: ${{ secrets.ATLAS_SMTP_USER }}
+          SMTP_PASS: ${{ secrets.ATLAS_SMTP_PASS }}
+        run: |
+          python3 - <<'PY'
+          import base64, email, email.policy, json, os, smtplib, ssl, sys, urllib.request
+
+          site, token = os.environ["SITE"].rstrip("/"), os.environ["TOKEN"]
+          if not site.startswith("https://"):
+              sys.exit("site must be an https URL")
+
+          def call(method, body=None):
+              request = urllib.request.Request(
+                  site + "/admin/mail/outbox", method=method,
+                  data=json.dumps(body).encode() if body is not None else None,
+                  headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  return json.load(response)
+
+          queue = call("GET")["messages"]
+          print(f"{len(queue)} queued")
+          if not queue:
+              sys.exit(0)
+          port = int(os.environ.get("SMTP_PORT") or "465")
+          context = ssl.create_default_context()
+          server = (smtplib.SMTP_SSL(os.environ["SMTP_HOST"], port, context=context, timeout=30) if port == 465
+                    else smtplib.SMTP(os.environ["SMTP_HOST"], port, timeout=30))
+          sent, failed = [], []
+          with server:
+              if port != 465:
+                  server.starttls(context=context)
+              server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+              for item in queue:
+                  try:
+                      message = email.message_from_bytes(base64.b64decode(item["mime"]), policy=email.policy.SMTP)
+                      server.send_message(message)
+                      sent.append(item["id"])
+                  except Exception as exc:  # never print the message or its recipient
+                      failed.append(item["id"])
+                      print(f"one message failed: {type(exc).__name__}")
+          print(f"sent {len(sent)}, failed {len(failed)}", call("POST", {"sent": sent, "failed": failed})["queue"])
+          sys.exit(1 if failed and not sent else 0)
+          PY

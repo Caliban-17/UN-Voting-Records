@@ -58,7 +58,8 @@ def store_settings(data: dict) -> list[str]:
 
 def configured() -> bool:
     current = settings()
-    return all(current[k] for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"))
+    needed = ("SMTP_FROM",) if transport() == "outbox" else ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM")
+    return all(current[k] for k in needed)
 
 
 def send_test() -> bool:
@@ -82,9 +83,21 @@ def min_days_between_editions() -> int:
     return max(1, int(os.getenv("NEWSLETTER_MIN_DAYS", "7")))
 
 
+def transport() -> str:
+    """``smtp`` sends directly. ``outbox`` queues each message for the
+    send-mail workflow to deliver: some hosts (Railway below its Pro plan)
+    block outbound SMTP, and the workflow already holds the mail secrets."""
+    return (os.getenv("MAIL_TRANSPORT") or "smtp").lower()
+
+
 def _send(messages: list[EmailMessage]) -> list[bool]:
     """Send each message; one flag per message, so a rejected recipient can be
-    retried without the others being sent the edition twice."""
+    retried without the others being sent the edition twice. In outbox mode a
+    queued message counts as handed over: the queue retries it from there."""
+    if transport() == "outbox":
+        for message in messages:
+            subscribers.enqueue(message.as_bytes())
+        return [True] * len(messages)
     current = settings()
     host, port = current["SMTP_HOST"], int(current["SMTP_PORT"] or "465")
     context = ssl.create_default_context()
