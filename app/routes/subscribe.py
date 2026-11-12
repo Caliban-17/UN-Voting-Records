@@ -1,11 +1,12 @@
-"""Public sign-up, confirmation and unsubscribe pages (no account, no password)."""
+"""The pages a visitor can reach without the password: sign in, or subscribe
+to the newsletter instead (no account needed), confirm and unsubscribe."""
 
 import json
 import logging
 
-from flask import Blueprint, Response, request
+from flask import Blueprint, Response, jsonify, redirect, request, session
 
-from app.middleware import _client_fingerprint
+from app.middleware import _client_fingerprint, check_password, login_attempt_allowed, site_password
 
 from src import mailer, subscribers
 from src.pulse import data_dir
@@ -32,6 +33,54 @@ FORM = """<form method="post" action="/subscribe" style="margin-top:20px">
 </form>"""
 SENT = ("Check your inbox", "If that address isn't already subscribed, a confirmation link is on its way. "
         "Nothing more is sent until you follow it.")
+
+
+LOGIN = """<form method="post" action="/login" style="margin-top:20px">
+<input type="hidden" name="next" value="{next}">
+<label for="password" style="font:13px Arial,sans-serif;color:#5d6f73;display:block;margin-bottom:6px">Password</label>
+<input id="password" name="password" type="password" required autocomplete="current-password" autofocus
+ style="width:100%;box-sizing:border-box;font:16px Arial,sans-serif;padding:11px;border:1px solid #9fb3b0;background:#fff">
+<button type="submit" style="margin-top:12px;font:700 15px Arial,sans-serif;padding:11px 18px;border:0;background:#102c35;color:#fffdf8;cursor:pointer">Sign in</button>
+</form>
+<h2 style="font:700 13px Arial,sans-serif;letter-spacing:1.2px;text-transform:uppercase;border-top:1px solid #102c35;padding-top:14px;margin:34px 0 0">No password?</h2>
+<p style="font-size:17px;line-height:1.55;color:#243d44;margin:10px 0 0">Get the weekly newsletter by email instead.</p>"""
+
+
+def _local(target: str) -> str:
+    """Only ever redirect within this site."""
+    return target if target.startswith("/") and not target.startswith("//") and "\\" not in target else "/"
+
+
+def login_page(target="/", error="", status=200):
+    from html import escape
+    body = "The research site is private." + (f' <strong style="color:#c8553d">{error}</strong>' if error else "")
+    return page("Sign in", body, LOGIN.format(next=escape(_local(target), quote=True)) + FORM, status)
+
+
+@bp.get("/login")
+def login_form():
+    if not site_password() or session.get("signed_in"):
+        return redirect(_local(request.args.get("next", "/")))
+    return login_page(request.args.get("next", "/"))
+
+
+@bp.post("/login")
+def login_submit():
+    target = request.form.get("next", "/")
+    if not login_attempt_allowed():
+        return login_page(target, "Too many attempts. Wait a minute and try again.", 429)
+    if not check_password(request.form.get("password", "")):
+        return login_page(target, "That password isn't right.", 401)
+    session.clear()
+    session["signed_in"] = True
+    session.permanent = True
+    return redirect(_local(target))
+
+
+@bp.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear()
+    return redirect("/login")
 
 
 def page(title, body, form="", status=200):
@@ -82,3 +131,38 @@ def subscribe_confirm(token):
 def unsubscribe(token):
     subscribers.unsubscribe(token)
     return page("You're unsubscribed", "You won't receive any more emails from UN-Scrupulous.")
+
+
+# ── mail credentials, handed over without anyone reading them ───────────────
+
+
+@bp.post("/admin/mail")
+def provision_mail():
+    """Store SMTP settings sent by the repository's own workflow, which holds
+    them as secrets. Needs the shared PROVISION_TOKEN; never echoes a value."""
+    import hmac
+    import os
+
+    token = os.getenv("PROVISION_TOKEN")
+    given = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    if not token:
+        return jsonify({"error": "Not found"}), 404
+    if not _client_ok() or not hmac.compare_digest(given.encode(), token.encode()):
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        stored = mailer.store_settings(data)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    result = {"stored": stored, "configured": mailer.configured()}
+    if data.get("test") and mailer.configured():
+        try:
+            result["test_sent"] = mailer.send_test()
+        except Exception as exc:
+            logger.exception("Test message failed")
+            result.update(test_sent=False, test_error=type(exc).__name__)
+    return jsonify(result)
+
+
+def _client_ok() -> bool:
+    return subscribers.allow_signup("provision:" + _client_fingerprint())

@@ -34,8 +34,12 @@ there are no per-country votes for those bodies. Committee coverage, headlines a
 calendar are context outside the hash; a veto is inside it.
 Hosting is Railway (`railway.json`, `scripts/start.sh`: one gunicorn worker, data on the
 `/data` volume, `scripts/sync_data_release.py` keeps the CSV on the newest data release
-from a separate process). With `SITE_PASSWORD` set the whole site needs it (HTTP Basic)
-except `/subscribe`, `/unsubscribe` and `/health`. Sign-up is double opt-in
+from a separate process). With `SITE_PASSWORD` set, every page redirects to `/login`
+(a signed session cookie; the page also offers the newsletter sign-up) except
+`/subscribe`, `/unsubscribe` and `/health`. SMTP settings come from `SMTP_*` or from the
+file written by `POST /admin/mail`, which `provision-mail.yml` calls with the repository's
+secrets and the shared `PROVISION_TOKEN`. The parquet cache is read dictionary-encoded
+(`read_parquet_compact`): same values and dtypes, about a third less peak memory. Sign-up is double opt-in
 (`src/subscribers.py`, SQLite beside the pulse state); `src/mailer.py` emails a changed
 edition to confirmed subscribers at most every `NEWSLETTER_MIN_DAYS` (7) via `SMTP_*`.
 The existing interactive atlas is at `/atlas`. Quantitative findings come from

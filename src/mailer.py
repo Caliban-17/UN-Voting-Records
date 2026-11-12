@@ -24,8 +24,52 @@ logger = logging.getLogger(__name__)
 PUBLICATION = "UN-Scrupulous"
 
 
+FIELDS = {"SMTP_HOST": "host", "SMTP_PORT": "port", "SMTP_USER": "user", "SMTP_PASS": "password", "SMTP_FROM": "sender"}
+
+
+def settings() -> dict:
+    """SMTP settings: environment variables win; otherwise the file written by
+    the provisioning endpoint (the repository's workflow sends its secrets
+    there, so nobody has to read or retype them)."""
+    try:
+        stored = json.loads((data_dir() / "smtp.json").read_text())
+    except (OSError, ValueError):
+        stored = {}
+    return {env: os.getenv(env) or str(stored.get(key) or "") for env, key in FIELDS.items()}
+
+
+def store_settings(data: dict) -> list[str]:
+    """Write the SMTP settings file (owner-readable only); returns the names
+    of the fields stored, never their values."""
+    values = {key: str(data.get(key) or "").strip() for key in FIELDS.values()}
+    missing = [k for k in ("host", "user", "password", "sender") if not values[k]]
+    if missing:
+        raise ValueError("Missing: " + ", ".join(missing))
+    values["port"] = values["port"] or "465"
+    if not values["port"].isdigit():
+        raise ValueError("port must be a number")
+    path = data_dir() / "smtp.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        json.dump(values, handle)
+    return sorted(values)
+
+
 def configured() -> bool:
-    return all(os.getenv(k) for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"))
+    current = settings()
+    return all(current[k] for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"))
+
+
+def send_test() -> bool:
+    """One message to the sending mailbox itself: proves host, login and
+    delivery without writing to anyone else."""
+    sender = settings()["SMTP_FROM"]
+    address = sender.split("<")[-1].strip("> ")
+    message = _envelope(address, f"{PUBLICATION}: mail delivery is working")
+    message.set_content("This is a test from the UN-Scrupulous newsletter service. "
+                        "If you can read it, subscribers will receive confirmations and editions.\n")
+    return all(_send([message]))
 
 
 def public_url() -> str:
@@ -41,14 +85,15 @@ def min_days_between_editions() -> int:
 def _send(messages: list[EmailMessage]) -> list[bool]:
     """Send each message; one flag per message, so a rejected recipient can be
     retried without the others being sent the edition twice."""
-    host, port = os.environ["SMTP_HOST"], int(os.getenv("SMTP_PORT") or "465")
+    current = settings()
+    host, port = current["SMTP_HOST"], int(current["SMTP_PORT"] or "465")
     context = ssl.create_default_context()
     server = smtplib.SMTP_SSL(host, port, context=context, timeout=30) if port == 465 else smtplib.SMTP(host, port, timeout=30)
     sent = []
     with server:
         if port != 465:
             server.starttls(context=context)
-        server.login(os.environ["SMTP_USER"], os.environ["SMTP_PASS"])
+        server.login(current["SMTP_USER"], current["SMTP_PASS"])
         for message in messages:
             try:
                 server.send_message(message)
@@ -61,7 +106,7 @@ def _send(messages: list[EmailMessage]) -> list[bool]:
 
 def _envelope(recipient: str, subject: str) -> EmailMessage:
     message = EmailMessage()
-    sender = os.environ["SMTP_FROM"]
+    sender = settings()["SMTP_FROM"]
     message["From"] = sender if "<" in sender else formataddr((PUBLICATION, sender))
     message["To"] = recipient
     message["Subject"] = subject

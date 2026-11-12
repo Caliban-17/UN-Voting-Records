@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import json
 import logging
+import os
 import re
 
 from bs4 import BeautifulSoup
@@ -118,6 +119,36 @@ def tally_in(text: str) -> dict | None:
     return {"yes": number(match[1]), "no": number(match[2]), "abstain": number(match[3])}
 
 
+def council_note(title: str) -> str | None:
+    """How the Council voted, when the headline says so. With fifteen members
+    the headline often names everyone who did not vote in favour."""
+    if re.search(r"\bunanimous", title, re.I):
+        return "unanimous"
+    match = re.search(r"with (\d+) members? in favou?r(?:,\s*(.+?)\s+abstaining)?", title, re.I)
+    if match:
+        return f"{match[1]} in favour" + (f"; {match[2].strip()} abstaining" if match[2] else "")
+    match = re.search(r"vote of (\d+) in favou?r to (\d+|none) against(?:,? with (\d+|no) abstentions?)?", title, re.I)
+    if match:
+        return f"{match[1]} in favour, {match[2]} against" + (f", {match[3]} abstaining" if match[3] else "")
+    return None
+
+
+MIRROR = "https://github.com/Caliban-17/UN-Voting-Records/releases/download/newsletter-current/bodies.json"
+
+
+def fetch_mirror() -> dict | None:
+    """The ledger as last published by the scheduled workflow. Some networks
+    are served a browser challenge instead of a listing; the workflow's copy
+    fills the gap rather than leaving a section empty."""
+    try:
+        response = requests.get(os.getenv("BODIES_MIRROR_URL", MIRROR), headers=AGENT, timeout=(5, 25))
+        response.raise_for_status()
+        data = response.json()
+        return data if isinstance(data.get("actions"), list) else None
+    except (requests.RequestException, ValueError):
+        return None
+
+
 def parse_coverage(body: str, now: datetime) -> list[dict]:
     """One record per meeting on a coverage listing page."""
     records = []
@@ -141,6 +172,7 @@ def parse_coverage(body: str, now: datetime) -> list[dict]:
             "date": when.isoformat(), "symbol": symbol, "body": body_of(symbol), "title": title,
             "summary": summary, "action": action, "texts": count,
             "tally": tally_in(title + " " + summary),
+            "vote_note": council_note(title) if body_of(symbol) == "Security Council" else None,
             "url": "https://press.un.org" + link["href"] if link["href"].startswith("/") else link["href"],
         })
     return records
@@ -153,7 +185,7 @@ def read_bodies(directory=None) -> dict:
         return {"actions": [], "vetoes": [], "sources": []}
 
 
-def refresh_bodies(directory=None, now=None, get_vetoes=fetch_veto_table, get_page=_get) -> dict:
+def refresh_bodies(directory=None, now=None, get_vetoes=fetch_veto_table, get_page=_get, mirror=None) -> dict:
     """Merge today's listings into the ledger; a failed source keeps its history."""
     now = now or datetime.now(UTC)
     directory = directory or data_dir()
@@ -198,6 +230,18 @@ def refresh_bodies(directory=None, now=None, get_vetoes=fetch_veto_table, get_pa
             return found
 
         attempt(f"UN meetings coverage: {section.replace('-', ' ')}", url, read_section)
+    if mirror is None and get_page is _get:
+        mirror = fetch_mirror
+    if mirror and any(s["status"] == "error" for s in sources):
+        published = mirror()
+        if published:
+            for record in published.get("actions", []):
+                actions.setdefault(record["symbol"], record)
+            if len(published.get("vetoes", [])) > len(vetoes):
+                vetoes = published["vetoes"]
+            for status in sources:
+                if status["status"] == "error":
+                    status["mirror"] = "filled from the published ledger"
     cutoff = (now - timedelta(days=RETAIN_DAYS)).date().isoformat()
     kept = sorted((a for a in actions.values() if a["date"] >= cutoff),
                   key=lambda a: (a["date"], a["symbol"]), reverse=True)

@@ -1,0 +1,46 @@
+name: Hand mail settings to the hosted site
+
+# The SMTP settings live only as repository secrets. This sends them straight
+# to the hosted app over HTTPS, which stores them on its volume, so nobody has
+# to read or retype them. Run it once, and again if a secret changes.
+
+on:
+  workflow_dispatch:
+    inputs:
+      site:
+        description: "Base URL of the hosted site"
+        default: "https://un-voting-records-production.up.railway.app"
+      send_test:
+        description: "Send one test message to the sending mailbox itself"
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Send settings
+        env:
+          SITE: ${{ inputs.site }}
+          TOKEN: ${{ secrets.RAILWAY_PROVISION_TOKEN }}
+          HOST: ${{ secrets.ATLAS_SMTP_HOST }}
+          PORT: ${{ secrets.ATLAS_SMTP_PORT }}
+          MAIL_USER: ${{ secrets.ATLAS_SMTP_USER }}
+          PASS: ${{ secrets.ATLAS_SMTP_PASS }}
+          SENDER: ${{ secrets.ATLAS_SMTP_FROM }}
+          SEND_TEST: ${{ inputs.send_test }}
+        run: |
+          set -euo pipefail
+          case "$SITE" in https://*) ;; *) echo "::error::site must be an https URL"; exit 1;; esac
+          body=$(jq -n --arg host "$HOST" --arg port "$PORT" --arg user "$MAIL_USER" --arg password "$PASS" \
+            --arg sender "$SENDER" --argjson test "$SEND_TEST" \
+            '{host: $host, port: $port, user: $user, password: $password, sender: $sender, test: $test}')
+          response=$(curl --silent --show-error --fail-with-body --max-time 90 -X POST "$SITE/admin/mail" \
+            -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" --data "$body")
+          # The response names what was stored and whether the test went out; it never contains a value.
+          echo "$response" | jq .
+          echo "$response" | jq -e '.configured == true' >/dev/null
+          if [ "$SEND_TEST" = "true" ]; then echo "$response" | jq -e '.test_sent == true' >/dev/null; fi

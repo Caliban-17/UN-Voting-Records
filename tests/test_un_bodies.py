@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.un_bodies import body_of, classify, parse_coverage, parse_vetoes, read_bodies, refresh_bodies, summary, tally_in
+from src.un_bodies import body_of, classify, council_note, parse_coverage, parse_vetoes, read_bodies, refresh_bodies, summary, tally_in
 
 NOW = datetime(2026, 11, 12, tzinfo=timezone.utc)
 
@@ -67,3 +67,23 @@ def test_ledger_accumulates_and_survives_a_failed_source(tmp_path):
     assert digest["committee_totals"] == {"First Committee": {"meetings": 1, "texts": 14}}
     assert len(digest["vetoes_this_year"]) == 2 and digest["vetoed_drafts_by_year"][2026] == 2
     assert digest["vetoes_by_member"][2026] == {"Russia": 2, "China": 1}
+
+
+def test_council_votes_are_read_from_headlines_only_when_stated():
+    assert council_note("With 14 Members in Favour, Russian Federation Abstaining, Security Council Adopts Resolution 2831 (2026)") \
+        == "14 in favour; Russian Federation abstaining"
+    assert council_note("Security Council Renews Mandate of Mission in Libya for One Year, Unanimously Adopting Resolution") == "unanimous"
+    assert council_note("Security Council Hears Update on Yemen Sanctions Committee") is None
+
+
+def test_a_blocked_listing_is_filled_from_the_published_ledger(tmp_path):
+    def blocked(url=None):
+        raise OSError("challenge")
+    published = {"actions": [{"symbol": "SC/16498", "date": "2026-10-30", "body": "Security Council",
+                              "title": "Security Council Fails to Adopt Resolution", "summary": "", "action": "defeated",
+                              "texts": None, "tally": None, "vote_note": None, "url": "https://press.un.org/x"}],
+                 "vetoes": [{"date": "2026-10-30", "draft": "S/1", "record": "r", "agenda": "a", "members": ["Russia"]}]}
+    result = refresh_bodies(tmp_path, NOW, blocked, blocked, mirror=lambda: published)
+    assert [a["symbol"] for a in result["actions"]] == ["SC/16498"] and len(result["vetoes"]) == 1
+    assert all(s["status"] == "error" and s["mirror"] for s in result["sources"])
+    assert refresh_bodies(tmp_path, NOW, blocked, blocked, mirror=lambda: None)["actions"] == result["actions"]

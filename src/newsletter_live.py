@@ -97,7 +97,8 @@ def sections(edition):
                                     .replace("vetos", "vetoes")))
         for item in bodies.get("council", [])[:5]:
             add("link", item["title"], item["url"])
-            add("small", f"{day(item['date'])} · {'not adopted' if item['action'] == 'defeated' else item['action']}")
+            add("small", f"{day(item['date'])} · {'not adopted' if item['action'] == 'defeated' else item['action']}"
+                + (f" · {item['vote_note']}" if item.get("vote_note") else ""))
 
     committee = bodies.get("committee") or []
     if committee:

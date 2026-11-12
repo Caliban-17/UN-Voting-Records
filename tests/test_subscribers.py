@@ -1,7 +1,5 @@
 """Public sign-up behind a private site: double opt-in, unsubscribe, the password gate."""
 
-import base64
-
 import pytest
 
 from src import mailer, subscribers
@@ -16,23 +14,65 @@ def site(tmp_path, monkeypatch):
     sent = []
     monkeypatch.setattr(mailer, "send_confirmation", lambda email, token, base=None: sent.append((email, token, base)) or True)
     monkeypatch.setattr(mailer, "send_edition", lambda edition, recipients, directory=None, base=None: 0)
+    from app import middleware
+    middleware._rate_buckets.clear()
     with create_app().test_client() as client:
         yield client, sent, tmp_path
 
 
-def _auth(password):
-    return {"Authorization": "Basic " + base64.b64encode(f"reader:{password}".encode()).decode()}
-
-
 def test_the_site_is_private_but_signing_up_is_not(site):
     client, _, _ = site
-    for path in ("/", "/briefing", "/newsletter", "/atlas", "/api/pulse", "/newsletter/feed.xml"):
+    for path in ("/", "/briefing", "/newsletter", "/atlas"):
         response = client.get(path)
-        assert response.status_code == 401 and "Basic" in response.headers["WWW-Authenticate"], path
-    assert client.get("/briefing", headers=_auth("wrong")).status_code == 401
-    assert client.get("/briefing", headers=_auth("open-sesame")).status_code == 200
+        assert response.status_code == 302 and response.headers["Location"].startswith("/login?next="), path
+    for path in ("/api/pulse", "/newsletter/feed.xml"):
+        assert client.get(path).status_code == 401, path
     for path in ("/subscribe", "/health"):
         assert client.get(path).status_code == 200, path
+    login = client.get("/login?next=/briefing")
+    # The sign-in page offers the newsletter to those without the password.
+    assert b'name="password"' in login.data and b'action="/subscribe"' in login.data
+    wrong = client.post("/login", data={"password": "wrong", "next": "/briefing"})
+    assert wrong.status_code == 401 and b"isn" in wrong.data
+    assert client.get("/briefing").status_code == 302
+    right = client.post("/login", data={"password": "open-sesame", "next": "/briefing"})
+    assert right.status_code == 302 and right.headers["Location"] == "/briefing"
+    assert client.get("/briefing").status_code == 200 and client.get("/api/pulse").status_code == 200
+    assert client.get("/logout").status_code == 302 and client.get("/briefing").status_code == 302
+
+
+def test_sign_in_never_redirects_off_site_and_slows_guessing(site, monkeypatch):
+    from app import middleware
+    client, _, _ = site
+    for target in ("https://evil.example/", "//evil.example", "/\\evil.example"):
+        response = client.post("/login", data={"password": "open-sesame", "next": target})
+        assert response.headers["Location"] == "/", target
+        client.get("/logout")
+    monkeypatch.setattr(middleware, "MAX_API_REQUESTS_PER_MIN", 3)
+    middleware._rate_buckets.clear()
+    codes = [client.post("/login", data={"password": "guess"}).status_code for _ in range(5)]
+    middleware._rate_buckets.clear()
+    assert codes == [401, 401, 401, 429, 429]
+
+
+def test_mail_settings_arrive_by_token_and_are_never_echoed(site, monkeypatch):
+    client, _, directory = site
+    body = {"host": "smtp.example.org", "port": "465", "user": "u@example.org", "password": "s3cret-value",
+            "sender": "editor@example.org", "test": True}
+    assert client.post("/admin/mail", json=body).status_code == 404            # off until a token is set
+    monkeypatch.setenv("PROVISION_TOKEN", "hand-off")
+    assert client.post("/admin/mail", json=body, headers={"Authorization": "Bearer nope"}).status_code == 403
+    tests = []
+    monkeypatch.setattr(mailer, "_send", lambda messages: tests.append(messages[0]) or [True])
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM", "SMTP_PORT"):
+        monkeypatch.delenv(key, raising=False)
+    ok = client.post("/admin/mail", json=body, headers={"Authorization": "Bearer hand-off"})
+    assert ok.status_code == 200 and ok.json == {"configured": True, "test_sent": True,
+                                                 "stored": ["host", "password", "port", "sender", "user"]}
+    assert b"s3cret-value" not in ok.data and tests[0]["To"] == "editor@example.org"
+    stored = directory / "smtp.json"
+    assert oct(stored.stat().st_mode & 0o777) == "0o600" and mailer.settings()["SMTP_HOST"] == "smtp.example.org"
+    assert client.post("/admin/mail", json={"host": "x"}, headers={"Authorization": "Bearer hand-off"}).status_code == 400
 
 
 def test_double_opt_in_and_unsubscribe(site):
