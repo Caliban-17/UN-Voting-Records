@@ -18,6 +18,7 @@ from src.pulse import UTC, data_dir, stamp
 
 EMAIL = re.compile(r"[^@\s<>\"',;]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}")
 SIGNUPS_PER_HOUR = 5
+SIGNUPS_PER_HOUR_GLOBAL = 120
 _attempts: dict[str, list[float]] = {}
 _lock = threading.Lock()
 
@@ -44,12 +45,13 @@ def valid_email(value: str) -> str | None:
     return value if len(value) <= 254 and EMAIL.fullmatch(value) else None
 
 
-def allow_signup(client: str, now: float | None = None) -> bool:
-    """At most ``SIGNUPS_PER_HOUR`` sign-up attempts per client address."""
+def allow_signup(client: str, now: float | None = None, limit: int = SIGNUPS_PER_HOUR) -> bool:
+    """At most ``limit`` attempts an hour under this key (a client address,
+    one email address, or everyone together)."""
     now = now or time.time()
     with _lock:
         recent = [t for t in _attempts.get(client, []) if now - t < 3600]
-        allowed = len(recent) < SIGNUPS_PER_HOUR
+        allowed = len(recent) < limit
         if allowed:
             recent.append(now)
         _attempts[client] = recent

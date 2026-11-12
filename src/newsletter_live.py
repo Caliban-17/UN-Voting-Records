@@ -165,6 +165,10 @@ def render_live(edition, fmt, footer=None):
     blocks = sections(edition)
     for text, url in footer or []:
         blocks.append(("small", text, url))
+    # Links come from feeds and listings we do not control: only https ones
+    # are ever written into a page or an email.
+    blocks = [(kind, value, url if kind == "chart" or not url or url.startswith("https://") else None)
+              for kind, value, url in blocks]
     if fmt != "html":
         lines = []
         for kind, value, url in blocks:
@@ -192,6 +196,7 @@ def render_live(edition, fmt, footer=None):
     out = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
            '<meta name="viewport" content="width=device-width,initial-scale=1">',
            '<meta name="robots" content="noindex,nofollow">',
+           '<link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png">',
            # Sizing lives here, not on the <svg>: the email build turns each chart
            # into a PNG, and the converter cannot read a styled height.
            '<style>svg{max-width:100%;height:auto}img{max-width:100%;height:auto}</style>',

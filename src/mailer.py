@@ -42,12 +42,20 @@ def store_settings(data: dict) -> list[str]:
     """Write the SMTP settings file (owner-readable only); returns the names
     of the fields stored, never their values."""
     values = {key: str(data.get(key) or "").strip() for key in FIELDS.values()}
-    missing = [k for k in ("host", "user", "password", "sender") if not values[k]]
-    if missing:
-        raise ValueError("Missing: " + ", ".join(missing))
-    values["port"] = values["port"] or "465"
-    if not values["port"].isdigit():
-        raise ValueError("port must be a number")
+    if transport() == "outbox":
+        # The workflow that sends the mail holds the credentials. The site
+        # only needs to know who the mail is from, so it keeps nothing else:
+        # a break-in here cannot leak a mail password it never stored.
+        if not values["sender"]:
+            raise ValueError("Missing: sender")
+        values = {"sender": values["sender"]}
+    else:
+        missing = [k for k in ("host", "user", "password", "sender") if not values[k]]
+        if missing:
+            raise ValueError("Missing: " + ", ".join(missing))
+        values["port"] = values["port"] or "465"
+        if not values["port"].isdigit():
+            raise ValueError("port must be a number")
     path = data_dir() / "smtp.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
