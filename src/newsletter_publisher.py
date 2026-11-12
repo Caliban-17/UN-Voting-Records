@@ -50,7 +50,10 @@ def compose_evidence(dataframe, decisions, pulse, research, bodies=None, now=Non
     live = current_affairs(decisions, pulse, research, now)
     if dataframe is not None:
         raw = dataframe.drop_duplicates("country_identifier").set_index("country_identifier")["country_name"].to_dict()
-        live["decisions"] = enrich(live["decisions"], dataframe, display_lookup(raw))
+        names = display_lookup(raw)
+        live["decisions"] = enrich(live["decisions"], dataframe, names)
+        if live.get("blocs"):
+            live["country_names"] = {code: names.get(code, code) for code in live["blocs"]["members"]}
         try:
             calendar = calendar_for(dataframe, as_of=now.date().isoformat())
             live["calendar"] = {

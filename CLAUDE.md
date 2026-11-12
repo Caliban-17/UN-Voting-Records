@@ -32,6 +32,11 @@ vetoes (the UN library's veto list) and of Council and committee outcomes (UN me
 coverage listings); article pages sit behind a browser challenge and are not fetched, so
 there are no per-country votes for those bodies. Committee coverage, headlines and the
 calendar are context outside the hash; a veto is inside it.
+`src/world_map.py` draws the bloc map shown on the research page and in the newsletter:
+blocs are clustered from a complete year's agreement and named for what they hold
+(Washington, the Western group, the majority, Moscow), one hue per bloc and three shades
+by how tightly a member votes with it. Outlines are vendored Natural Earth
+(`static/vendor/countries_110m.json`), codes and flag emoji come from `data/iso_codes.csv`.
 Hosting is Railway (`railway.json`, `scripts/start.sh`: one gunicorn worker, data on the
 `/data` volume, `scripts/sync_data_release.py` keeps the CSV on the newest data release
 from a separate process). With `SITE_PASSWORD` set, every page redirects to `/login`

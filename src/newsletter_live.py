@@ -9,11 +9,12 @@ from src.newsletter_story import (
     timeline_chart, veto_chart,
 )
 from src.un_bodies import COMMITTEE_REMIT
+from src.world_map import bloc_lines, bloc_map_svg, bloc_title
 
 
 # Keys of current_affairs that never change an edition's content hash.
 EDITION_CONTEXT_KEYS = ("checked_at", "sources", "window_start", "window_end", "headlines",
-                        "bodies", "calendar")
+                        "bodies", "calendar", "country_names")
 
 
 def _plural(count, noun):
@@ -133,9 +134,16 @@ def sections(edition):
 
     through = live.get("rollcall_data_through")
     findings = live.get("findings", [])
+    blocs = live.get("blocs")
+    if (findings and through) or blocs:
+        add("h2", "Who votes with whom")
+    if blocs:
+        names = live.get("country_names") or {}
+        add("chart", bloc_map_svg(blocs, bloc_title(blocs, names)))
+        for line in bloc_lines(blocs, names):
+            add("p", line)
     if findings and through:
         stale = (datetime.strptime(edition.edition_date, "%Y-%m-%d") - datetime.strptime(through, "%Y-%m-%d")).days > 45
-        add("h2", "Who votes with whom")
         if stale:
             add("p", f"No country-by-country votes have been published since {day(through, year=True)}, so this "
                 f"picture is unchanged. {findings[0]['finding']}")

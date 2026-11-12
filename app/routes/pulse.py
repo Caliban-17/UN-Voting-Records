@@ -12,6 +12,20 @@ from src.pulse import UTC, briefing, data_dir, date_value, read_snapshot, rss
 bp = Blueprint("pulse", __name__)
 
 
+def bloc_view(brief):
+    """The map and its captions for a research brief that carries blocs."""
+    blocs = brief.get("blocs")
+    if not blocs:
+        return None
+    try:
+        from app.services import country_names
+        from src.world_map import bloc_lines, bloc_map_svg, bloc_title
+        names = country_names() or {}
+        return {"svg": bloc_map_svg(blocs, bloc_title(blocs, names)), "lines": bloc_lines(blocs, names)}
+    except Exception:
+        return None
+
+
 def research():
     try:
         result = json.loads((data_dir() / "research.json").read_text())
@@ -36,7 +50,8 @@ def research_api():
 @bp.get("/briefing")
 def publication():
     topic, issue, query = request.args.get("topic", ""), request.args.get("issue", ""), request.args.get("q", "")[:200]
-    return render_template("briefing.html", research=research(), pulse=briefing(read_snapshot(), topic=topic, issue=issue, query=query), topic=topic, issue=issue, query=query)
+    brief = research()
+    return render_template("briefing.html", research=brief, blocs=bloc_view(brief), pulse=briefing(read_snapshot(), topic=topic, issue=issue, query=query), topic=topic, issue=issue, query=query)
 
 
 @bp.get("/briefing/feed.xml")
@@ -78,7 +93,7 @@ def research_edition(edition_id):
     except (OSError, ValueError):
         return jsonify({"error": "Unknown edition"}), 404
     # Archived research is immutable; current source context is labelled separately.
-    return render_template("briefing.html", research=edition, pulse=briefing(read_snapshot()), topic="", issue="", query="")
+    return render_template("briefing.html", research=edition, blocs=bloc_view(edition), pulse=briefing(read_snapshot()), topic="", issue="", query="")
 
 
 @bp.get("/newsletter")

@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import logging
 
 import pandas as pd
 
 from src.pulse import UTC, stamp
 from src.config import SYNTHETIC_ID_BASE
 from src.story_analysis import _final_year_complete, resolutions_table
+
+logger = logging.getLogger(__name__)
 
 
 def _percentage(value):
@@ -31,6 +34,7 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
     if df is None or df.empty:
         return {**base, "message": "Voting data is not available; no research claims have been generated."}
     df = df.drop_duplicates(["rcid", "country_identifier"]).copy()
+    df_all = df          # the seasonal comparison narrows ``df``; the bloc map uses the whole record
     res = resolutions_table(df)
     counts = res.groupby("year")["rcid"].nunique()
     latest_date = pd.to_datetime(df["date"], errors="coerce").max()
@@ -160,6 +164,14 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
               "coverage": [{"year": int(y), "resolutions": int(counts[y]),
                             "first_date": str(res.loc[res.year == y, "date"].min())[:10],
                             "last_date": str(res.loc[res.year == y, "date"].max())[:10]} for y in baseline_years + [recent_year]]}
+    try:
+        from src.story_analysis import _last_full_year
+        from src.world_map import voting_blocs
+        blocs = voting_blocs(df_all, _last_full_year(resolutions_table(df_all)))
+        if blocs:
+            result["blocs"] = blocs
+    except Exception:  # the map is an extra; research must publish without it
+        logger.warning("Voting blocs unavailable for this brief", exc_info=True)
     baseline_average = len(previous) / len(baseline_years)
     ratio = len(recent) / baseline_average
     result["coverage_note"] = (
