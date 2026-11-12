@@ -121,7 +121,8 @@ def with_analysis_slot(func: Callable) -> Callable:
 # Everything is private when SITE_PASSWORD is set, except what a would-be
 # reader needs before they have it: the sign-in page, signing up to the
 # newsletter, confirming and unsubscribing.
-PUBLIC_PREFIXES = ("/login", "/logout", "/subscribe", "/unsubscribe", "/health", "/admin/mail")
+PUBLIC_PREFIXES = ("/login", "/logout", "/subscribe", "/unsubscribe", "/health", "/admin/mail",
+                   "/favicon.", "/apple-touch-icon.png")
 
 
 def site_password() -> str | None:
@@ -140,8 +141,24 @@ def check_password(given: str) -> bool:
     return bool(password) and hmac.compare_digest((given or "").encode(), password.encode())
 
 
+LOGIN_ATTEMPTS, LOGIN_WINDOW_SEC = 10, 600
+_login_attempts: dict[str, deque] = defaultdict(deque)
+
+
 def login_attempt_allowed() -> bool:
-    return not _is_rate_limited(f"{_client_fingerprint()}:login")
+    """Ten password attempts per client every ten minutes. The general API
+    limit (180 a minute) is far too generous for guessing a password."""
+    now, client = time.time(), _client_fingerprint()
+    with _rate_lock:
+        for key in [k for k, v in _login_attempts.items() if not v or v[-1] < now - LOGIN_WINDOW_SEC]:
+            del _login_attempts[key]
+        attempts = _login_attempts[client]
+        while attempts and attempts[0] < now - LOGIN_WINDOW_SEC:
+            attempts.popleft()
+        if len(attempts) >= LOGIN_ATTEMPTS:
+            return False
+        attempts.append(now)
+        return True
 
 
 def _password_required():
@@ -194,6 +211,8 @@ def register_middleware(app: Flask) -> None:
             "frame-ancestors 'none'"
         )
         response.headers["Content-Security-Policy"] = csp
+        if site_password() and not request.path.startswith(("/subscribe", "/unsubscribe", "/health", "/favicon.", "/apple-touch-icon")):
+            response.headers["Cache-Control"] = "private, no-store"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

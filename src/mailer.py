@@ -42,12 +42,20 @@ def store_settings(data: dict) -> list[str]:
     """Write the SMTP settings file (owner-readable only); returns the names
     of the fields stored, never their values."""
     values = {key: str(data.get(key) or "").strip() for key in FIELDS.values()}
-    missing = [k for k in ("host", "user", "password", "sender") if not values[k]]
-    if missing:
-        raise ValueError("Missing: " + ", ".join(missing))
-    values["port"] = values["port"] or "465"
-    if not values["port"].isdigit():
-        raise ValueError("port must be a number")
+    if transport() == "outbox":
+        # The workflow that sends the mail holds the credentials. The site
+        # only needs to know who the mail is from, so it keeps nothing else:
+        # a break-in here cannot leak a mail password it never stored.
+        if not values["sender"]:
+            raise ValueError("Missing: sender")
+        values = {"sender": values["sender"]}
+    else:
+        missing = [k for k in ("host", "user", "password", "sender") if not values[k]]
+        if missing:
+            raise ValueError("Missing: " + ", ".join(missing))
+        values["port"] = values["port"] or "465"
+        if not values["port"].isdigit():
+            raise ValueError("port must be a number")
     path = data_dir() / "smtp.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -58,7 +66,8 @@ def store_settings(data: dict) -> list[str]:
 
 def configured() -> bool:
     current = settings()
-    return all(current[k] for k in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM"))
+    needed = ("SMTP_FROM",) if transport() == "outbox" else ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM")
+    return all(current[k] for k in needed)
 
 
 def send_test() -> bool:
@@ -82,9 +91,21 @@ def min_days_between_editions() -> int:
     return max(1, int(os.getenv("NEWSLETTER_MIN_DAYS", "7")))
 
 
+def transport() -> str:
+    """``smtp`` sends directly. ``outbox`` queues each message for the
+    send-mail workflow to deliver: some hosts (Railway below its Pro plan)
+    block outbound SMTP, and the workflow already holds the mail secrets."""
+    return (os.getenv("MAIL_TRANSPORT") or "smtp").lower()
+
+
 def _send(messages: list[EmailMessage]) -> list[bool]:
     """Send each message; one flag per message, so a rejected recipient can be
-    retried without the others being sent the edition twice."""
+    retried without the others being sent the edition twice. In outbox mode a
+    queued message counts as handed over: the queue retries it from there."""
+    if transport() == "outbox":
+        for message in messages:
+            subscribers.enqueue(message.as_bytes(), recipient=str(message["To"] or ""))
+        return [True] * len(messages)
     current = settings()
     host, port = current["SMTP_HOST"], int(current["SMTP_PORT"] or "465")
     context = ssl.create_default_context()

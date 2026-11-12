@@ -16,6 +16,7 @@ def site(tmp_path, monkeypatch):
     monkeypatch.setattr(mailer, "send_edition", lambda edition, recipients, directory=None, base=None: 0)
     from app import middleware
     middleware._rate_buckets.clear()
+    middleware._login_attempts.clear()
     with create_app().test_client() as client:
         yield client, sent, tmp_path
 
@@ -48,11 +49,13 @@ def test_sign_in_never_redirects_off_site_and_slows_guessing(site, monkeypatch):
         response = client.post("/login", data={"password": "open-sesame", "next": target})
         assert response.headers["Location"] == "/", target
         client.get("/logout")
-    monkeypatch.setattr(middleware, "MAX_API_REQUESTS_PER_MIN", 3)
-    middleware._rate_buckets.clear()
+    monkeypatch.setattr(middleware, "LOGIN_ATTEMPTS", 3)
+    middleware._login_attempts.clear()
     codes = [client.post("/login", data={"password": "guess"}).status_code for _ in range(5)]
-    middleware._rate_buckets.clear()
     assert codes == [401, 401, 401, 429, 429]
+    # Even the right password waits once the limit is hit.
+    assert client.post("/login", data={"password": "open-sesame"}).status_code == 429
+    middleware._login_attempts.clear()
 
 
 def test_mail_settings_arrive_by_token_and_are_never_echoed(site, monkeypatch):
@@ -89,6 +92,11 @@ def test_double_opt_in_and_unsubscribe(site):
     # Signing up again reveals nothing and sends nothing.
     again = client.post("/subscribe", data={"email": "reader@example.org"})
     assert again.data == response.data and len(sent) == 1
+    # Opening the link only asks (mail scanners open links); the button unsubscribes.
+    ask = client.get(f"/unsubscribe/{token}")
+    assert ask.status_code == 200 and b"<form" in ask.data
+    assert [s["email"] for s in subscribers.confirmed(directory)] == ["reader@example.org"]
+    assert client.get("/unsubscribe/<script>").status_code == 404
     assert client.post(f"/unsubscribe/{token}").status_code == 200
     assert subscribers.confirmed(directory) == []
     assert client.get(f"/subscribe/confirm/{token}").status_code == 404   # an unsubscribed link cannot re-subscribe
@@ -144,3 +152,113 @@ def test_a_rejected_recipient_is_retried_without_resending_to_the_rest(tmp_path,
     assert batches == [["a@example.org", "b@example.org"], ["b@example.org"]]
     assert (tmp_path / "delivery.json").exists()
     assert mailer.deliver_if_due(edition, tmp_path, now + timedelta(hours=1)) == 0
+
+
+def test_outbox_mode_queues_mail_for_the_workflow_to_send(site, monkeypatch):
+    import base64
+    import email
+
+    client, _, directory = site
+    monkeypatch.setenv("MAIL_TRANSPORT", "outbox")
+    monkeypatch.setenv("PROVISION_TOKEN", "hand-off")
+    monkeypatch.setenv("SMTP_FROM", "editor@example.org")
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS"):
+        monkeypatch.delenv(key, raising=False)
+    assert mailer.configured()                                   # only a sender address is needed to queue
+    assert mailer._send([mailer.confirmation_message("reader@example.org", "tok", "https://un.example")]) == [True]
+    assert client.get("/admin/mail/outbox").status_code == 403
+    auth = {"Authorization": "Bearer hand-off"}
+    queue = client.get("/admin/mail/outbox", headers=auth).json["messages"]
+    assert len(queue) == 1
+    message = email.message_from_bytes(base64.b64decode(queue[0]["mime"]))
+    assert message["To"] == "reader@example.org" and "confirm/tok" in message.get_payload()
+    # A failure leaves it queued; a success empties the row of its content.
+    assert client.post("/admin/mail/outbox", json={"failed": [queue[0]["id"]]}, headers=auth).json["queue"] == {"pending": 1}
+    assert len(client.get("/admin/mail/outbox", headers=auth).json["messages"]) == 1
+    assert client.post("/admin/mail/outbox", json={"sent": [queue[0]["id"]]}, headers=auth).json["queue"] == {"sent": 1}
+    assert client.get("/admin/mail/outbox", headers=auth).json["messages"] == []
+    assert subscribers.pending_mail(directory) == []
+    assert client.post("/admin/mail/outbox", json={"sent": ["x"]}, headers=auth).status_code == 400
+
+
+def test_stale_queued_mail_is_dropped_not_sent_late(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    now = datetime(2026, 11, 12, tzinfo=timezone.utc)
+    subscribers.enqueue(b"old", tmp_path, now - timedelta(days=8))
+    fresh = subscribers.enqueue(b"fresh", tmp_path, now)
+    assert [m["id"] for m in subscribers.pending_mail(tmp_path, now=now)] == [fresh]
+
+
+def test_unsubscribing_cancels_mail_still_in_the_queue(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAIL_TRANSPORT", "outbox")
+    monkeypatch.setenv("SMTP_FROM", "editor@example.org")
+    monkeypatch.setenv("PULSE_DATA_DIR", str(tmp_path))
+    leaving = subscribers.confirm(subscribers.add("leaving@example.org", tmp_path)["token"], tmp_path)
+    subscribers.confirm(subscribers.add("staying@example.org", tmp_path)["token"], tmp_path)
+    for address in ("Leaving@Example.org", "staying@example.org"):
+        message = mailer._envelope(address, "An edition")
+        message.set_content("body")
+        mailer._send([message])
+    assert len(subscribers.pending_mail(tmp_path)) == 2
+    assert subscribers.unsubscribe(leaving["token"], tmp_path)
+    queue = subscribers.pending_mail(tmp_path)
+    assert len(queue) == 1 and b"staying@example.org" in queue[0]["message"]
+    assert subscribers.acknowledge([], [], tmp_path) == {"cancelled": 1, "pending": 1}
+    assert not subscribers.unsubscribe("no-such-token", tmp_path)
+
+
+def test_signed_in_pages_are_not_cacheable_and_the_form_cannot_flood_one_address(site):
+    client, sent, _ = site
+    client.post("/login", data={"password": "open-sesame"})
+    assert client.get("/briefing").headers["Cache-Control"] == "private, no-store"
+    assert "Cache-Control" not in client.get("/subscribe").headers
+    for _ in range(4):
+        assert client.post("/subscribe", data={"email": "victim@example.org"}).status_code == 200
+    assert len(sent) == 2                       # same page every time, but only two messages an hour
+
+
+def test_queued_mail_mode_keeps_no_mail_password_on_the_site(site, monkeypatch):
+    client, _, directory = site
+    monkeypatch.setenv("MAIL_TRANSPORT", "outbox")
+    monkeypatch.setenv("PROVISION_TOKEN", "hand-off")
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_FROM", "SMTP_PORT"):
+        monkeypatch.delenv(key, raising=False)
+    (directory / "smtp.json").write_text('{"host": "h", "user": "u", "password": "left-over", "sender": "old@example.org"}')
+    body = {"host": "smtp.example.org", "user": "u", "password": "s3cret-value", "sender": "editor@example.org"}
+    ok = client.post("/admin/mail", json=body, headers={"Authorization": "Bearer hand-off"})
+    assert ok.json["stored"] == ["sender"] and ok.json["configured"] is True
+    stored = (directory / "smtp.json").read_text()
+    assert "s3cret-value" not in stored and "left-over" not in stored and "editor@example.org" in stored
+
+
+def test_only_https_links_are_ever_rendered():
+    from src.newsletter_live import render_live
+    from types import SimpleNamespace
+    import src.newsletter_live as live
+    original = live.sections
+    live.sections = lambda edition: [("link", "Bad", "javascript:alert(1)"), ("link", "Plain", "http://x.example"),
+                                     ("link", "Good", "https://press.un.org/x")]
+    try:
+        html = render_live(SimpleNamespace(email_subject="s"), "html")
+        text = render_live(SimpleNamespace(email_subject="s"), "txt")
+    finally:
+        live.sections = original
+    assert "javascript:" not in html and "http://x.example" not in html and 'href="https://press.un.org/x"' in html
+    assert "javascript:" not in text
+
+
+def test_workflows_send_secrets_only_to_the_fixed_site():
+    from pathlib import Path
+    for name in ("provision-mail.yml", "send-mail.yml"):
+        text = Path(".github/workflows", name).read_text()
+        assert "inputs.site" not in text, name
+        assert "SITE: https://un-voting-records-production.up.railway.app" in text, name
+        assert "set -x" not in text, name
+
+
+def test_the_icon_is_served_before_sign_in(site):
+    client, _, _ = site
+    for path, kind in (("/favicon.svg", "image/svg+xml"), ("/favicon.ico", "image/"), ("/apple-touch-icon.png", "image/png")):
+        response = client.get(path)
+        assert response.status_code == 200 and response.mimetype.startswith(kind), path
+    assert b'rel="icon"' in client.get("/login").data

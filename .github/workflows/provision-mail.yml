@@ -7,9 +7,6 @@ name: Hand mail settings to the hosted site
 on:
   workflow_dispatch:
     inputs:
-      site:
-        description: "Base URL of the hosted site"
-        default: "https://un-voting-records-production.up.railway.app"
       send_test:
         description: "Send one test message to the sending mailbox itself"
         type: boolean
@@ -24,7 +21,9 @@ jobs:
     steps:
       - name: Send settings
         env:
-          SITE: ${{ inputs.site }}
+          # Fixed here on purpose: this job posts mail secrets, so the destination
+          # must not be something a run can be pointed at.
+          SITE: https://un-voting-records-production.up.railway.app
           TOKEN: ${{ secrets.RAILWAY_PROVISION_TOKEN }}
           HOST: ${{ secrets.ATLAS_SMTP_HOST }}
           PORT: ${{ secrets.ATLAS_SMTP_PORT }}

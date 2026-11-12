@@ -3,6 +3,7 @@ to the newsletter instead (no account needed), confirm and unsubscribe."""
 
 import json
 import logging
+import re
 
 from flask import Blueprint, Response, jsonify, redirect, request, session
 
@@ -16,7 +17,7 @@ bp = Blueprint("subscribe", __name__)
 
 PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
-<title>UN-Scrupulous</title></head>
+<title>UN-Scrupulous</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/favicon.ico"><link rel="apple-touch-icon" href="/apple-touch-icon.png"></head>
 <body style="margin:0;background:#f3f1eb;padding:40px 16px;font-family:Georgia,serif;color:#102c35">
 <main style="max-width:520px;margin:0 auto;background:#fffdf8;padding:32px 28px">
 <p style="font:12px Arial,sans-serif;letter-spacing:1px;text-transform:uppercase;color:#5d6f73;border-bottom:3px solid #102c35;padding-bottom:14px;margin:0">UN-Scrupulous</p>
@@ -103,6 +104,11 @@ def subscribe_submit():
         return page("That address doesn't look right", "Check it and try again.", FORM, 400)
     if not subscribers.allow_signup(_client_fingerprint()):
         return page("Too many attempts", "Try again in an hour.", status=429)
+    # Nobody can use the form to pelt one address, or the world, with
+    # confirmation messages sent in our name.
+    if not subscribers.allow_signup("address:" + email, limit=2) or \
+            not subscribers.allow_signup("everyone", limit=subscribers.SIGNUPS_PER_HOUR_GLOBAL):
+        return page(*SENT)
     row = subscribers.add(email)
     if row:
         base = mailer.public_url() or request.url_root.rstrip("/")
@@ -127,7 +133,22 @@ def subscribe_confirm(token):
     return page("You're subscribed", "The current edition is on its way, and the next will follow within a week.")
 
 
-@bp.route("/unsubscribe/<token>", methods=["GET", "POST"])
+UNSUBSCRIBE = """<form method="post" action="/unsubscribe/{token}" style="margin-top:20px">
+<button type="submit" style="font:700 15px Arial,sans-serif;padding:11px 18px;border:0;background:#102c35;color:#fffdf8;cursor:pointer">Unsubscribe</button>
+</form>"""
+
+
+@bp.get("/unsubscribe/<token>")
+def unsubscribe_ask(token):
+    """A link in an email is opened by scanners and previewers as well as by
+    people, so following it only asks; the button (or a mail client's
+    one-click request, which is a POST) does the unsubscribing."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", token):
+        return page("That link isn't valid", "Use the unsubscribe link from a recent issue.", status=404)
+    return page("Unsubscribe?", "You'll stop receiving UN-Scrupulous.", UNSUBSCRIBE.format(token=token))
+
+
+@bp.post("/unsubscribe/<token>")
 def unsubscribe(token):
     subscribers.unsubscribe(token)
     return page("You're unsubscribed", "You won't receive any more emails from UN-Scrupulous.")
@@ -164,5 +185,50 @@ def provision_mail():
     return jsonify(result)
 
 
+def _sender_authorised() -> bool:
+    import hmac
+    import os
+
+    token = os.getenv("PROVISION_TOKEN") or ""
+    given = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+    return bool(token) and hmac.compare_digest(given.encode(), token.encode())
+
+
+@bp.get("/admin/mail/outbox")
+def outbox():
+    """Queued messages for the send-mail workflow (base64 MIME). Token only."""
+    import base64
+
+    if not _sender_authorised():
+        return jsonify({"error": "Forbidden"}), 403
+    return jsonify({"messages": [{"id": m["id"], "mime": base64.b64encode(m["message"]).decode()}
+                                 for m in subscribers.pending_mail()]})
+
+
+@bp.post("/admin/mail/outbox")
+def outbox_acknowledge():
+    if not _sender_authorised():
+        return jsonify({"error": "Forbidden"}), 403
+    data = request.get_json(silent=True) or {}
+    try:
+        sent, failed = [int(i) for i in data.get("sent", [])], [int(i) for i in data.get("failed", [])]
+    except (TypeError, ValueError):
+        return jsonify({"error": "sent and failed must be lists of ids"}), 400
+    return jsonify({"queue": subscribers.acknowledge(sent, failed)})
+
+
 def _client_ok() -> bool:
     return subscribers.allow_signup("provision:" + _client_fingerprint())
+
+
+# ── icon (public: a browser asks for it before anyone has signed in) ─────────
+
+
+@bp.get("/favicon.ico")
+@bp.get("/favicon.svg")
+@bp.get("/apple-touch-icon.png")
+def icon():
+    from flask import current_app
+    response = current_app.send_static_file(request.path.lstrip("/"))
+    response.headers["Cache-Control"] = "public, max-age=604800"
+    return response

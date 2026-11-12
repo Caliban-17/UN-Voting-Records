@@ -18,6 +18,7 @@ from src.pulse import UTC, data_dir, stamp
 
 EMAIL = re.compile(r"[^@\s<>\"',;]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}")
 SIGNUPS_PER_HOUR = 5
+SIGNUPS_PER_HOUR_GLOBAL = 120
 _attempts: dict[str, list[float]] = {}
 _lock = threading.Lock()
 
@@ -30,6 +31,12 @@ def _connect(directory=None) -> sqlite3.Connection:
     db.execute("""CREATE TABLE IF NOT EXISTS subscribers (
         email TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, status TEXT NOT NULL,
         created_at TEXT NOT NULL, confirmed_at TEXT, last_sent_hash TEXT, last_sent_at TEXT)""")
+    db.execute("""CREATE TABLE IF NOT EXISTS outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL, message BLOB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, sent_at TEXT,
+        recipient TEXT)""")
+    if "recipient" not in {row["name"] for row in db.execute("PRAGMA table_info(outbox)")}:
+        db.execute("ALTER TABLE outbox ADD COLUMN recipient TEXT")
     return db
 
 
@@ -38,12 +45,13 @@ def valid_email(value: str) -> str | None:
     return value if len(value) <= 254 and EMAIL.fullmatch(value) else None
 
 
-def allow_signup(client: str, now: float | None = None) -> bool:
-    """At most ``SIGNUPS_PER_HOUR`` sign-up attempts per client address."""
+def allow_signup(client: str, now: float | None = None, limit: int = SIGNUPS_PER_HOUR) -> bool:
+    """At most ``limit`` attempts an hour under this key (a client address,
+    one email address, or everyone together)."""
     now = now or time.time()
     with _lock:
         recent = [t for t in _attempts.get(client, []) if now - t < 3600]
-        allowed = len(recent) < SIGNUPS_PER_HOUR
+        allowed = len(recent) < limit
         if allowed:
             recent.append(now)
         _attempts[client] = recent
@@ -78,8 +86,16 @@ def confirm(token: str, directory=None, now: datetime | None = None) -> dict | N
 
 
 def unsubscribe(token: str, directory=None) -> bool:
+    """Unsubscribe, and cancel anything still queued for that address: the
+    page promises no more emails, including ones waiting to be sent."""
     with _connect(directory) as db:
-        return db.execute("UPDATE subscribers SET status = 'unsubscribed' WHERE token = ?", (token,)).rowcount > 0
+        row = db.execute("SELECT email FROM subscribers WHERE token = ?", (token,)).fetchone()
+        if not row:
+            return False
+        db.execute("UPDATE subscribers SET status = 'unsubscribed' WHERE token = ?", (token,))
+        db.execute("UPDATE outbox SET status = 'cancelled', message = x'' WHERE status = 'pending' AND recipient = ?",
+                   (row["email"],))
+        return True
 
 
 def confirmed(directory=None) -> list[dict]:
@@ -96,3 +112,42 @@ def mark_sent(email: str, content_hash: str, directory=None, now: datetime | Non
 def counts(directory=None) -> dict:
     with _connect(directory) as db:
         return {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM subscribers GROUP BY status")}
+
+
+# ── outbox: mail waiting for a sender that can reach the mail server ─────────
+
+OUTBOX_KEEP_DAYS = 7
+OUTBOX_MAX_ATTEMPTS = 20
+
+
+def enqueue(raw: bytes, directory=None, now: datetime | None = None, recipient: str | None = None) -> int:
+    with _connect(directory) as db:
+        return db.execute("INSERT INTO outbox (created_at, message, recipient) VALUES (?, ?, ?)",
+                          (stamp(now or datetime.now(UTC)), raw, (recipient or "").strip().lower() or None)).lastrowid
+
+
+def pending_mail(directory=None, limit: int = 40, now: datetime | None = None) -> list[dict]:
+    """Queued messages, oldest first. A message nobody could send for a week,
+    or that failed twenty times, is dropped rather than sent stale."""
+    from datetime import timedelta
+    cutoff = stamp((now or datetime.now(UTC)) - timedelta(days=OUTBOX_KEEP_DAYS))
+    with _connect(directory) as db:
+        db.execute("UPDATE outbox SET status = 'expired' WHERE status = 'pending' AND (created_at < ? OR attempts >= ?)",
+                   (cutoff, OUTBOX_MAX_ATTEMPTS))
+        # Belt and braces: never hand out mail for an address that has unsubscribed.
+        db.execute("UPDATE outbox SET status = 'cancelled', message = x'' WHERE status = 'pending' AND recipient IN "
+                   "(SELECT email FROM subscribers WHERE status = 'unsubscribed')")
+        return [dict(r) for r in db.execute(
+            "SELECT id, message FROM outbox WHERE status = 'pending' ORDER BY id LIMIT ?", (limit,))]
+
+
+def acknowledge(sent: list[int], failed: list[int], directory=None, now: datetime | None = None) -> dict:
+    """Record what the sender did. A sent message is kept only as a row
+    without its body, so no address lingers in the queue."""
+    with _connect(directory) as db:
+        for ident in sent:
+            db.execute("UPDATE outbox SET status = 'sent', sent_at = ?, message = x'' WHERE id = ? AND status = 'pending'",
+                       (stamp(now or datetime.now(UTC)), int(ident)))
+        for ident in failed:
+            db.execute("UPDATE outbox SET attempts = attempts + 1 WHERE id = ? AND status = 'pending'", (int(ident),))
+        return {r["status"]: r["n"] for r in db.execute("SELECT status, COUNT(*) AS n FROM outbox GROUP BY status")}
