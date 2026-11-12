@@ -24,6 +24,24 @@ late is listed ("Registered late") instead of never reaching an edition. Newslet
 headlines skip routine notices (`pulse.ROUTINE`) and rank events first.
 The live edition's `content_hash` covers decisions and research only; headlines, like
 the calendar, are context outside the hash (`EDITION_CONTEXT_KEYS`).
+Each edition is written as a story (`src/newsletter_story.py`): the headline is the most
+notable vote, compared with the same resolution's earlier votes in the record, and every
+chart is an inline SVG whose title states its finding (no `style` on the `<svg>`: the email
+build converts charts to PNG). `src/un_bodies.py` keeps a ledger of Security Council
+vetoes (the UN library's veto list) and of Council and committee outcomes (UN meetings
+coverage listings); article pages sit behind a browser challenge and are not fetched, so
+there are no per-country votes for those bodies. Committee coverage, headlines and the
+calendar are context outside the hash; a veto is inside it.
+Hosting is Railway (`railway.json`, `scripts/start.sh`: one gunicorn worker, data on the
+`/data` volume, `scripts/sync_data_release.py` keeps the CSV on the newest data release
+from a separate process). With `SITE_PASSWORD` set, every page redirects to `/login`
+(a signed session cookie; the page also offers the newsletter sign-up) except
+`/subscribe`, `/unsubscribe` and `/health`. SMTP settings come from `SMTP_*` or from the
+file written by `POST /admin/mail`, which `provision-mail.yml` calls with the repository's
+secrets and the shared `PROVISION_TOKEN`. The parquet cache is read dictionary-encoded
+(`read_parquet_compact`): same values and dtypes, about a third less peak memory. Sign-up is double opt-in
+(`src/subscribers.py`, SQLite beside the pulse state); `src/mailer.py` emails a changed
+edition to confirmed subscribers at most every `NEWSLETTER_MIN_DAYS` (7) via `SMTP_*`.
 The existing interactive atlas is at `/atlas`. Quantitative findings come from
 `src/research_brief.py`; source-attributed current context comes from `src/pulse.py`.
 `src/pulse_worker.py` refreshes without a visitor and detects changed voting CSVs.

@@ -29,6 +29,6 @@ EXPOSE 5001
 # python:*-slim ships no curl; probe /health with the stdlib instead.
 # start-period covers the initial CSV/parquet load.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
-    CMD python -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:5001/health', timeout=8).status == 200 else 1)"
+    CMD python -c "import os, sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:' + os.getenv('PORT', '5001') + '/health', timeout=8).status == 200 else 1)"
 
-CMD ["python", "web_app.py"]
+CMD ["sh", "scripts/start.sh"]

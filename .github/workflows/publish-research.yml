@@ -34,7 +34,7 @@ jobs:
           set -euo pipefail
           mkdir -p data/pulse
           if gh release view newsletter-current >/dev/null 2>&1; then
-            gh release download newsletter-current --pattern latest.json --pattern research.json --pattern decisions.json --pattern newsletter.json --dir data/pulse --clobber
+            gh release download newsletter-current --pattern latest.json --pattern research.json --pattern decisions.json --pattern bodies.json --pattern newsletter.json --dir data/pulse --clobber
           fi
           LATEST_TAG=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" | \
             jq -r '[.[][] | select(.tag_name | startswith("data-"))] | sort_by(.published_at) | last.tag_name // empty')
@@ -72,7 +72,7 @@ jobs:
             gh release create newsletter-current --title 'UN-Scrupulous — current newsletter' \
               --notes 'Automatically refreshed newsletter with official UN decisions, current reporting and dated political research. Download newsletter.html to read. Changed editions are archived separately.' --latest=false
           fi
-          gh release upload newsletter-current data/pulse/latest.json data/pulse/research.json data/pulse/decisions.json data/pulse/newsletter.json data/pulse/newsletter.html data/pulse/newsletter.md data/pulse/newsletter.txt --clobber
+          gh release upload newsletter-current data/pulse/latest.json data/pulse/research.json data/pulse/decisions.json data/pulse/bodies.json data/pulse/newsletter.json data/pulse/newsletter.html data/pulse/newsletter.md data/pulse/newsletter.txt --clobber
       - name: Retain diagnostic output if a source failed
         if: always()
         uses: actions/upload-artifact@v7

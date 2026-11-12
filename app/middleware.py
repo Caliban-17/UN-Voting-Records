@@ -5,6 +5,8 @@ Registered by create_app() via register_middleware().
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 import os
 import time
@@ -13,7 +15,9 @@ from collections import defaultdict, deque
 from functools import wraps
 from typing import Callable
 
-from flask import Flask, request, jsonify
+from urllib.parse import quote
+
+from flask import Flask, redirect, request, jsonify, session
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +116,53 @@ def with_analysis_slot(func: Callable) -> Callable:
 # ── Registration ──────────────────────────────────────────────────────────────
 
 
+# ── Site password ─────────────────────────────────────────────────────────────
+
+# Everything is private when SITE_PASSWORD is set, except what a would-be
+# reader needs before they have it: the sign-in page, signing up to the
+# newsletter, confirming and unsubscribing.
+PUBLIC_PREFIXES = ("/login", "/logout", "/subscribe", "/unsubscribe", "/health", "/admin/mail")
+
+
+def site_password() -> str | None:
+    return os.getenv("SITE_PASSWORD") or None
+
+
+def session_secret() -> bytes:
+    """Signing key for the sign-in cookie, derived from the password so that
+    changing the password signs everyone out and no second secret is needed."""
+    seed = os.getenv("SECRET_KEY") or f"un-scrupulous-session:{site_password() or 'open'}"
+    return hashlib.sha256(seed.encode()).digest()
+
+
+def check_password(given: str) -> bool:
+    password = site_password()
+    return bool(password) and hmac.compare_digest((given or "").encode(), password.encode())
+
+
+def login_attempt_allowed() -> bool:
+    return not _is_rate_limited(f"{_client_fingerprint()}:login")
+
+
+def _password_required():
+    if not site_password() or request.path.startswith(PUBLIC_PREFIXES) or request.method == "OPTIONS":
+        return None
+    if session.get("signed_in"):
+        return None
+    if request.path.startswith("/api/") or request.path.endswith(".xml"):
+        return jsonify({"error": "Sign in at /login to use this."}), 401
+    return redirect("/login?next=" + quote(request.full_path.rstrip("?"), safe="/?=&"))
+
+
 def register_middleware(app: Flask) -> None:
+    app.secret_key = session_secret()
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=bool(os.getenv("RAILWAY_ENVIRONMENT")),
+        PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,
+    )
+    app.before_request(_password_required)
+
     @app.before_request
     def enforce_rate_limits():
         if not request.path.startswith("/api/"):

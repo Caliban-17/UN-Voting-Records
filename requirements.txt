@@ -26,7 +26,7 @@ pytest-playwright>=0.4.4
 
 # Data Performance
 fastparquet==2024.2.0
-pyarrow>=15.0.0
+pyarrow>=15.0.0,<18   # newer releases need NumPy 2; the compact cache read uses it
 
 # Configuration & Scheduling
 python-dotenv==1.0.1
@@ -44,6 +44,7 @@ flake8>=7.0          # lint gate in .github/workflows/tests.yml
 tqdm
 psutil
 flask==3.0.0
+gunicorn>=22.0
 flask-cors
 cairosvg>=2.7,<3
 pyyaml>=6.0          # workflow-consistency tests parse .github/workflows/*.yml

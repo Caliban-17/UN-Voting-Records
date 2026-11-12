@@ -29,6 +29,8 @@ def refresh_all(directory=None, dataframe=None):
         snapshot = refresh(directory)
         from src.un_decisions import refresh_decisions
         decisions = refresh_decisions(directory)
+        from src.un_bodies import refresh_bodies
+        bodies = refresh_bodies(directory)
         if dataframe is not None:
             from src.research_brief import build_research_brief
             brief = build_research_brief(dataframe)
@@ -52,7 +54,7 @@ def refresh_all(directory=None, dataframe=None):
                 atomic_json(path, brief)
             if brief.get("status") == "ready":
                 from src.newsletter_publisher import publish_newsletter
-                publish_newsletter(dataframe, decisions, snapshot, brief, directory)
+                publish_newsletter(dataframe, decisions, snapshot, brief, directory, None, bodies)
         return snapshot
 
 

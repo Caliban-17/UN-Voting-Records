@@ -349,3 +349,24 @@ def test_a_csv_newer_than_its_parquet_cache_is_reloaded(tmp_path):
     os.utime(csv, (later, later))
     second, _ = load_and_preprocess_data(str(csv))
     assert sorted(second["vote"]) == [-1, 1]
+
+
+def test_the_compact_cache_read_matches_a_plain_read(tmp_path):
+    import pandas as pd
+
+    from src.data_processing import read_parquet_compact, share_repeated_strings
+
+    frame = pd.DataFrame({"rcid": [1, 1, 2], "country_identifier": ["AAA", "BBB", "AAA"],
+                          "issue": ["Same title", "Same title", None], "subjects": ["A|B", "A|B", None],
+                          "topics": [["A", "B"], ["A", "B"], []], "vote": [1.0, None, -1.0]})
+    path = tmp_path / "cache.parquet"
+    frame.to_parquet(path, index=False)
+    compact, plain = read_parquet_compact(str(path)), pd.read_parquet(path)
+    assert list(compact.columns) == list(plain.columns) and (compact.dtypes == plain.dtypes).all()
+    for column in ("country_identifier", "issue", "subjects"):
+        assert compact[column].isna().equals(plain[column].isna())
+        assert (compact[column].dropna() == plain[column].dropna()).all()
+    assert compact["topics"].tolist() == [["A", "B"], ["A", "B"], []]
+    assert compact["issue"].iloc[0] is compact["issue"].iloc[1]          # one object, not one per row
+    shared = share_repeated_strings(frame.copy())
+    assert shared["issue"].iloc[0] is shared["issue"].iloc[1] and pd.isna(shared["issue"].iloc[2])

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from typing import Tuple, Optional, List, Dict
 import logging
@@ -80,6 +81,81 @@ def _apply_post_load_transformations(df: pd.DataFrame) -> None:
         df["primary_topic"] = "Unknown"
 
 
+def share_repeated_strings(df: pd.DataFrame) -> pd.DataFrame:
+    """Make equal strings in a column one shared object instead of one per row.
+
+    A loaded frame holds a separate Python string for every cell: the same
+    193 country names and the same resolution title are stored hundreds of
+    thousands of times, about 1 GB in all. Pointing every row at one copy of
+    each distinct value cuts that by roughly nine-tenths without changing a
+    dtype or a value, so no caller can tell the difference (a categorical
+    dtype would save the same memory but changes how groupby and fillna
+    behave)."""
+    for column in df.columns:
+        if df[column].dtype != object:
+            continue
+        try:
+            codes, uniques = pd.factorize(df[column], use_na_sentinel=True)
+        except TypeError:  # unhashable cells (the per-row topic lists)
+            continue
+        shared = np.asarray(uniques, dtype=object).take(codes)
+        if (codes == -1).any():
+            shared[codes == -1] = np.nan
+        df[column] = shared
+    if "topics" in df.columns and "subjects" in df.columns:
+        lists = {key: [t.strip() for t in str(key).split("|") if t.strip()] if isinstance(key, str) else []
+                 for key in df["subjects"].unique()}
+        df["topics"] = df["subjects"].map(lists)
+    return df
+
+
+def _compact_pyarrow(path: str) -> tuple[pd.DataFrame, list[str]]:
+    import pyarrow.parquet as pq
+
+    schema = pq.read_schema(path)
+    text = [f.name for f in schema if str(f.type) in ("string", "large_string")]
+    df = pd.read_parquet(path, engine="pyarrow", read_dictionary=text,
+                         columns=[f.name for f in schema if f.name != "topics"])
+    return df, list(schema.names)
+
+
+def _compact_fastparquet(path: str) -> tuple[pd.DataFrame, list[str]]:
+    import fastparquet
+
+    source = fastparquet.ParquetFile(path)
+    names = list(source.columns)
+    text = [name for name in names if name != "topics" and str(source.dtypes.get(name)) == "object"]
+    df = source.to_pandas(columns=[n for n in names if n != "topics"], categories=text)
+    return df, names
+
+
+def read_parquet_compact(path: str) -> pd.DataFrame:
+    """Read the cache without ever holding one string per cell: text columns
+    come back dictionary-encoded and are widened to plain object columns whose
+    rows share each distinct value. Identical values and dtypes to a plain
+    read at roughly two-thirds of the peak memory. Uses whichever parquet
+    engine works (the pinned NumPy rules out pyarrow in CI and Docker)."""
+    for reader in (_compact_pyarrow, _compact_fastparquet):
+        try:
+            df, names = reader(path)
+            break
+        except Exception as exc:
+            logger.info("%s unavailable for the compact read: %s", reader.__name__, exc)
+    else:
+        return pd.read_parquet(path)
+    try:
+        for column in df.columns:
+            if isinstance(df[column].dtype, pd.CategoricalDtype):
+                df[column] = df[column].astype(object)
+        if "topics" in names:
+            df["topics"] = [[]] * len(df)
+            df = share_repeated_strings(df)
+        return df[names]
+    except Exception as exc:  # any surprise in the cache: fall back to the plain read
+        logger.warning("Compact parquet read failed (%s); using the plain read.", exc)
+        return pd.read_parquet(path)
+
+
 # Columns the rest of the app expects to find. If any are missing from a
 # cached parquet, treat the cache as stale and rebuild from CSV.
 REQUIRED_LOADED_COLUMNS: tuple[str, ...] = (
@@ -121,7 +197,7 @@ def _load_and_preprocess_data_impl(file_path, use_cache=True):
         if use_cache and os.path.exists(parquet_path) and not cache_is_stale:
             logger.info("Loading cached data from: %s", parquet_path)
             try:
-                df = pd.read_parquet(parquet_path)
+                df = read_parquet_compact(parquet_path)
                 missing = [c for c in REQUIRED_LOADED_COLUMNS if c not in df.columns]
                 if missing:
                     logger.warning(
@@ -158,7 +234,7 @@ def _load_and_preprocess_data_impl(file_path, use_cache=True):
                     except Exception as e:
                         logger.warning("Failed to save parquet cache: %s", e)
                 unique_issues = df["issue"].astype(str).unique().tolist() if "issue" in df.columns else []
-                return df, unique_issues
+                return share_repeated_strings(df), unique_issues
             else:
                 logger.info(
                     "Plain read returned %d rows — falling through to line-stitcher.",
@@ -278,7 +354,7 @@ def _load_and_preprocess_data_impl(file_path, use_cache=True):
         unique_issues = df["issue"].unique().tolist()
         logger.info("Number of unique issues: %d", len(unique_issues))
 
-        return df, unique_issues
+        return share_repeated_strings(df), unique_issues
 
     except Exception as e:
         logger.error("Error loading and preprocessing data: %s", str(e), exc_info=True)

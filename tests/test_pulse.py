@@ -158,6 +158,7 @@ def test_worker_preserves_research_publication_date(tmp_path, monkeypatch):
     from src import pulse_worker
     monkeypatch.setattr(pulse_worker, "refresh", lambda directory: {"items": [], "sources": []})
     monkeypatch.setattr("src.un_decisions.refresh_decisions", lambda directory: {"records": [], "sources": []})
+    monkeypatch.setattr("src.un_bodies.refresh_bodies", lambda directory: {"actions": [], "vetoes": [], "sources": []})
     monkeypatch.setattr("src.newsletter_publisher.publish_newsletter", lambda *args: {"changed": False})
     pulse_worker.refresh_all(tmp_path, votes())
     before = (tmp_path / "research.json").read_text()
@@ -177,6 +178,7 @@ def test_worker_never_replaces_ready_research_with_a_thin_rebuild(tmp_path, monk
     from src import pulse_worker
     monkeypatch.setattr(pulse_worker, "refresh", lambda directory: {"items": [], "sources": []})
     monkeypatch.setattr("src.un_decisions.refresh_decisions", lambda directory: {"records": [], "sources": []})
+    monkeypatch.setattr("src.un_bodies.refresh_bodies", lambda directory: {"actions": [], "vetoes": [], "sources": []})
     monkeypatch.setattr("src.newsletter_publisher.publish_newsletter", lambda *args: {"changed": False})
     pulse_worker.refresh_all(tmp_path, votes())
     before = (tmp_path / "research.json").read_text()
