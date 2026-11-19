@@ -282,3 +282,82 @@ def test_country_code_set_is_cached_per_frame(monkeypatch):
     assert codes == {"USA", "FRA"} and services.country_codes() is codes
     monkeypatch.setattr(services, "df_global", pd.DataFrame({"country_identifier": ["CUB"]}))
     assert services.country_codes() == {"CUB"}
+
+
+# ── lazy data: an idle site must not hold the dataset ───────────────────────
+
+
+def test_lazy_mode_loads_on_demand_and_releases_when_idle(monkeypatch, tmp_path):
+    import pandas as pd
+
+    from app import services
+    from src.cache_utils import api_cache
+
+    frame = pd.DataFrame({"country_identifier": ["USA"], "country_name": ["United States"], "year": [2025],
+                          "date": [pd.Timestamp("2025-12-01")]})
+    loads = []
+
+    def fake_load(use_cache=True):
+        loads.append(1)
+        services.df_global = frame
+        return True
+
+    csv = tmp_path / "votes.csv"
+    csv.write_text("x")
+    monkeypatch.setattr(services, "df_global", None)
+    monkeypatch.setattr(services, "UN_VOTES_CSV_PATH", csv)
+    monkeypatch.setattr(services, "load_data", fake_load)
+    monkeypatch.setenv("DATA_IDLE_MINUTES", "10")
+    assert services.peek_df() is None and loads == []          # looking is not loading
+    assert services.get_df() is frame and services.get_df() is frame and loads == [1]
+    api_cache.put("stale", ("body", "application/json"))
+    assert not services.unload_if_idle()                        # just used
+    assert services.unload_if_idle(now=services._last_used + 601)
+    assert services.peek_df() is None and api_cache.get("stale") is None
+    assert services.get_df() is frame and loads == [1, 1]       # the next request brings it back
+    services.drop_data()
+    assert services.peek_df() is None
+    monkeypatch.setenv("DATA_IDLE_MINUTES", "0")                # off: nothing is ever dropped or lazily loaded
+    monkeypatch.setattr(services, "df_global", frame)
+    assert not services.unload_if_idle(now=services._last_used + 10_000)
+    monkeypatch.setattr(services, "df_global", None)
+    assert services.get_df() is None and loads == [1, 1]
+
+
+def test_health_reports_memory_without_loading_data(monkeypatch):
+    from flask import Flask
+
+    from app import services
+    from app.routes import core
+
+    monkeypatch.setattr(services, "df_global", None)
+    monkeypatch.setenv("DATA_IDLE_MINUTES", "10")
+    monkeypatch.setattr(services, "load_data", lambda *a, **k: (_ for _ in ()).throw(AssertionError("health loaded data")))
+    app = Flask(__name__)
+    app.register_blueprint(core.bp)
+    body = app.test_client().get("/health").json
+    assert body["data_loaded"] is False and body["lazy_data"] is True and body["memory_mb"] > 0
+
+
+def test_unload_rechecks_idleness_after_waiting_for_a_load(monkeypatch, tmp_path):
+    """The idle check could pass while a request was still loading the frame;
+    the unload then threw away data that had just been used."""
+    import threading
+    import time
+
+    import pandas as pd
+
+    from app import services
+
+    frame = pd.DataFrame({"country_identifier": ["USA"]})
+    monkeypatch.setattr(services, "df_global", frame)
+    monkeypatch.setenv("DATA_IDLE_MINUTES", "10")
+    monkeypatch.setattr(services, "_last_used", time.time() - 3600)      # idle: the first check passes
+    outcome = []
+    with services._load_lock:                                             # a request is mid-load
+        worker = threading.Thread(target=lambda: outcome.append(services.unload_if_idle()))
+        worker.start()
+        time.sleep(0.2)
+        services._last_used = time.time()                                 # ...and has just used the frame
+    worker.join(5)
+    assert outcome == [False] and services.peek_df() is frame

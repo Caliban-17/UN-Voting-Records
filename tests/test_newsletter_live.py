@@ -261,3 +261,12 @@ def test_past_editions_page_lists_editions_and_feed_links_are_https_behind_the_p
         feed = ET.fromstring(client.get("/newsletter/feed.xml", headers=proxied).data)
         assert feed.find("channel/link").text == "https://un.example/newsletter"
         assert feed.find("channel/item/link").text.startswith("https://un.example/newsletter/editions/")
+
+
+def test_an_unconfirmed_adoption_is_never_called_without_a_vote():
+    live = _live()
+    live["decisions"].append({**live["decisions"][1], "symbol": "A/RES/81/10", "title": "Something adopted",
+                              "adoption": "unconfirmed"})
+    text = render_text(build_current_edition(live, "2026-11-11"))
+    assert "Adopted without a vote: Multilingualism." in text
+    assert "not currently showing whether by vote: Something adopted." in text

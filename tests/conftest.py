@@ -57,3 +57,12 @@ def pytest_collection_modifyitems(config, items):
         )
         if needs_dataset:
             item.add_marker(skip_no_data)
+
+
+@pytest.fixture(autouse=True)
+def _no_committed_decision_seed(monkeypatch, tmp_path):
+    """Tests build their own registers; the committed seed of real outcomes
+    must not leak into them."""
+    import src.un_decisions as decisions
+
+    monkeypatch.setattr(decisions, "SEED", tmp_path / "no-seed.json")

@@ -23,6 +23,9 @@ from app.services import (
     country_names,
     data_freshness,
     get_df,
+    idle_minutes,
+    memory_mb,
+    peek_df,
     get_method_metadata,
     get_year_bounds,
     normalize_country_code,
@@ -297,8 +300,11 @@ def health_check():
     return jsonify(
         {
             "status": "healthy",
-            "data_loaded": get_df() is not None,
-            "record_count": len(get_df()) if get_df() is not None else 0,
+            # peek: a health probe must never be what loads a gigabyte.
+            "data_loaded": peek_df() is not None,
+            "record_count": len(peek_df()) if peek_df() is not None else 0,
+            "lazy_data": idle_minutes() > 0,
+            "memory_mb": memory_mb(),
         }
     )
 

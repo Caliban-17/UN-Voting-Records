@@ -53,7 +53,7 @@ def compose_evidence(dataframe, decisions, pulse, research, bodies=None, now=Non
         names = display_lookup(raw)
         live["decisions"] = enrich(live["decisions"], dataframe, names)
         if live.get("blocs"):
-            live["country_names"] = {code: names.get(code, code) for code in live["blocs"]["members"]}
+            live["country_names"] = research.get("bloc_names") or {code: names.get(code, code) for code in live["blocs"]["members"]}
         try:
             calendar = calendar_for(dataframe, as_of=now.date().isoformat())
             live["calendar"] = {
