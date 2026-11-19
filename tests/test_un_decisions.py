@@ -207,3 +207,20 @@ def test_the_committed_seed_holds_the_votes_the_register_dropped():
     seed = json.loads(Path("data/decision_tallies.json").read_text())["tallies"]
     assert seed["A/RES/81/7"] == {"yes": 130, "no": 17, "abstain": 25} and seed["A/RES/81/2"] is None
     assert sum(v is not None for v in seed.values()) > 150
+
+
+def test_composing_from_disk_reads_a_healed_ledger(tmp_path, monkeypatch):
+    import json
+
+    import src.un_decisions as decisions
+
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"tallies": {"A/RES/81/1": {"yes": 152, "no": 3, "abstain": 4}}}))
+    monkeypatch.setattr(decisions, "SEED", seed)
+    record = parse_register(register(action="without a vote"), 81, NOW)[0]
+    atomic_json(tmp_path / "decisions.json", {"records": [record, {**record, "symbol": "A/RES/81/5"}],
+                                              "sources": [{"session": 81, "status": "error", "error": "Register has lost its vote counts"}]})
+    healed = {r["symbol"]: r for r in decisions.heal_ledger(tmp_path)["records"]}
+    assert healed["A/RES/81/1"]["tally"]["yes"] == 152 and healed["A/RES/81/1"]["adoption"] == "recorded_vote"
+    assert healed["A/RES/81/5"]["adoption"] == "unconfirmed"
+    assert read_decisions(tmp_path)["records"][0]["tally"]["yes"] == 152          # written back

@@ -118,6 +118,27 @@ def read_decisions(directory=None):
         return {"records": [], "sources": []}
 
 
+def heal_ledger(directory=None) -> dict:
+    """The ledger with every established tally restored, without fetching:
+    what composing from disk must read, so that a ledger an earlier pass
+    damaged can never reach an edition."""
+    directory = directory or data_dir()
+    ledger = read_decisions(directory)
+    tallies, quiet = known_outcomes(directory, ledger.get("records", []))
+    degraded = {s["session"] for s in ledger.get("sources", []) if "lost its vote counts" in s.get("error", "")}
+    changed = False
+    for record in ledger.get("records", []):
+        before = (record.get("tally"), record.get("adoption"))
+        if record["symbol"] in tallies:
+            record.update(tally=tallies[record["symbol"]], adoption="recorded_vote")
+        elif record.get("tally") is None and record["symbol"] not in quiet and record["session"] in degraded:
+            record["adoption"] = "unconfirmed"
+        changed = changed or before != (record.get("tally"), record.get("adoption"))
+    if changed:
+        atomic_json(directory / "decisions.json", ledger)
+    return ledger
+
+
 def refresh_decisions(directory=None, now=None, fetcher=fetch_register):
     now = now or datetime.now(UTC)
     directory = directory or data_dir()

@@ -35,7 +35,8 @@ def refresh_all(directory=None, dataframe=None, collect=True):
             snapshot, decisions, bodies = refresh(directory), refresh_decisions(directory), refresh_bodies(directory)
         else:
             from src.pulse import read_snapshot
-            snapshot, decisions, bodies = read_snapshot(directory), read_decisions(directory), read_bodies(directory)
+            from src.un_decisions import heal_ledger
+            snapshot, decisions, bodies = read_snapshot(directory), heal_ledger(directory), read_bodies(directory)
         if dataframe is not None:
             from src.research_brief import build_research_brief
             brief = build_research_brief(dataframe)
@@ -168,6 +169,7 @@ def start_lazy_worker(idle_hook, drop_data, compose=compose_in_subprocess):
     def work():
         from src.pulse import date_value, read_snapshot
         seen_version = source_version()
+        collected = False        # collect once per start, whatever the last pass's age
         while True:
             try:
                 idle_hook()
@@ -177,8 +179,8 @@ def start_lazy_worker(idle_hook, drop_data, compose=compose_in_subprocess):
                     drop_data()          # the next request loads the new file
                 directory = data_dir()
                 checked = date_value(read_snapshot(directory).get("checked_at"))
-                if checked is None or (datetime.now(UTC) - checked).total_seconds() >= interval:
-                    refresh_all(directory)
+                if not collected or checked is None or (datetime.now(UTC) - checked).total_seconds() >= interval:
+                    collected = refresh_all(directory) is not None
                 state = directory / "compose-state.json"
                 try:
                     done = json.loads(state.read_text()).get("key")
