@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 import json
+from pathlib import Path
 import re
 
 from bs4 import BeautifulSoup
@@ -74,6 +75,42 @@ def parse_register(body, session, now):
     return records
 
 
+SEED = Path(__file__).resolve().parents[1] / "data" / "decision_tallies.json"
+
+
+def known_outcomes(directory, ledger) -> tuple[dict, set]:
+    """What is already established about each resolution: (tallies by symbol,
+    symbols established as adopted without a vote).
+
+    A vote that was recorded does not become "without a vote". In November
+    2026 the register dropped every vote count and read "without a vote" for
+    all 330 rows, the Cuba embargo included; copying that produced an edition
+    saying the Assembly had recorded no votes. Tallies come from the committed
+    seed, the ledger and every archived edition; "without a vote" is trusted
+    only from the seed, which was read while the register was sound."""
+    tallies, quiet = {}, set()
+    try:
+        for symbol, tally in json.loads(SEED.read_text())["tallies"].items():
+            if tally:
+                tallies[symbol] = tally
+            else:
+                quiet.add(symbol)
+    except (OSError, ValueError, KeyError):
+        pass
+    for path in (directory / "newsletters").glob("*.json"):
+        try:
+            affairs = json.loads(path.read_text()).get("current_affairs") or {}
+        except (OSError, ValueError):
+            continue
+        for record in affairs.get("decisions", []) + affairs.get("late_decisions", []):
+            if record.get("tally"):
+                tallies.setdefault(record["symbol"], record["tally"])
+    for record in ledger:
+        if record.get("tally"):
+            tallies.setdefault(record["symbol"], record["tally"])
+    return tallies, quiet
+
+
 def read_decisions(directory=None):
     try:
         return json.loads(((directory or data_dir()) / "decisions.json").read_text())
@@ -86,6 +123,16 @@ def refresh_decisions(directory=None, now=None, fetcher=fetch_register):
     directory = directory or data_dir()
     prior = read_decisions(directory)
     records = {r["symbol"]: r for r in prior.get("records", [])}
+    tallies, quiet = known_outcomes(directory, records.values())
+
+    def settle(record, degraded):
+        """Apply what is already established to a record."""
+        if record["symbol"] in tallies:
+            record.update(tally=tallies[record["symbol"]], adoption="recorded_vote")
+        elif record["tally"] is None and record["symbol"] not in quiet and degraded:
+            # Only a register that has lost its counts says "without a vote" here.
+            record["adoption"] = "unconfirmed"
+        return record
     # Around the September changeover poll both adjacent regular sessions.
     session = now.year - (1945 if now.month >= 9 else 1946)
     sources = []
@@ -99,7 +146,12 @@ def refresh_decisions(directory=None, now=None, fetcher=fetch_register):
             old_count = sum(r["session"] == number for r in records.values())
             if len(fetched) < old_count:
                 raise ValueError("Register unexpectedly shrank; retaining previous records")
+            # No count on any row, where counts are known to exist: the register
+            # itself is broken, and its "without a vote" means nothing.
+            degraded = not any(r["tally"] for r in fetched) and any(
+                s.startswith(f"A/RES/{number}/") for s in tallies)
             for record in fetched:
+                settle(record, degraded)
                 known = records.get(record["symbol"])
                 # When a symbol first entered a register we were already
                 # following. A register read for the first time is not news.
@@ -108,6 +160,12 @@ def refresh_decisions(directory=None, now=None, fetcher=fetch_register):
                     else (stamp(now) if old_count else None)
                 )
                 records[record["symbol"]] = record
+            if degraded:
+                for record in records.values():          # heal what an earlier pass overwrote
+                    if record["session"] == number:
+                        settle(record, True)
+                raise ValueError("Register has lost its vote counts; recorded tallies kept, "
+                                 "new entries marked unconfirmed")
             status.update(status="ok", count=len(fetched), last_success_at=stamp(now))
         except Exception as exc:
             status.update(status="error", error=str(exc)[:200])

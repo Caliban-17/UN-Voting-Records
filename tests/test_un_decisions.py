@@ -161,3 +161,49 @@ def test_headlines_prefer_events_to_routine_notices():
                 or "Appoints" in t or "Organization of Work" in t]
     assert sum("Committee" in t for t in titles) <= 1 and len(titles) == 3
     assert sum(t in ("Famine confirmed in North Darfur", "Sudan: aid convoy attacked") for t in titles) == 1
+
+
+def test_a_register_that_loses_its_counts_cannot_erase_recorded_votes(tmp_path, monkeypatch):
+    """November 2026: the register read "without a vote" on every row, the
+    Cuba embargo included, and the edition said no votes had been recorded."""
+    import json
+
+    import src.un_decisions as decisions
+
+    seed = tmp_path / "seed.json"
+    seed.write_text(json.dumps({"tallies": {"A/RES/81/1": {"yes": 152, "no": 3, "abstain": 4}, "A/RES/81/2": None}}))
+    monkeypatch.setattr(decisions, "SEED", seed)
+
+    def rows(*specs):
+        body = b""
+        for number, action in specs:
+            body += register(81, action=action).replace(b">81/1<", f">81/{number}<".encode())
+        return body
+
+    sound = rows((1, "with a vote (152-3-4)"), (2, "without a vote"))
+    broken = rows((1, "without a vote"), (2, "without a vote"), (3, "without a vote"))
+    refresh_decisions(tmp_path, NOW, lambda url: sound if "81_" in url else register(80))
+    result = refresh_decisions(tmp_path, NOW, lambda url: broken if "81_" in url else register(80))
+    by_symbol = {r["symbol"]: r for r in result["records"]}
+    assert by_symbol["A/RES/81/1"]["tally"] == {"yes": 152, "no": 3, "abstain": 4}      # kept
+    assert by_symbol["A/RES/81/2"]["adoption"] == "without_vote"                       # established earlier
+    assert by_symbol["A/RES/81/3"]["adoption"] == "unconfirmed"                        # only the broken page says so
+    status = next(s for s in result["sources"] if s["session"] == 81)
+    assert status["status"] == "error" and "lost its vote counts" in status["error"]
+    # A ledger an earlier pass already overwrote is healed from what is known.
+    damaged = {**result, "records": [{**r, "tally": None, "adoption": "without_vote"} for r in result["records"]]}
+    atomic_json(tmp_path / "decisions.json", damaged)
+    healed = {r["symbol"]: r for r in refresh_decisions(tmp_path, NOW, lambda url: broken if "81_" in url else register(80))["records"]}
+    assert healed["A/RES/81/1"]["tally"]["yes"] == 152 and healed["A/RES/81/3"]["adoption"] == "unconfirmed"
+    # Once the register is sound again it is believed again.
+    fixed = rows((1, "with a vote (152-3-4)"), (2, "without a vote"), (3, "with a vote (100-10-20)"))
+    again = {r["symbol"]: r for r in refresh_decisions(tmp_path, NOW, lambda url: fixed if "81_" in url else register(80))["records"]}
+    assert again["A/RES/81/3"]["tally"] == {"yes": 100, "no": 10, "abstain": 20} and again["A/RES/81/3"]["adoption"] == "recorded_vote"
+
+
+def test_the_committed_seed_holds_the_votes_the_register_dropped():
+    import json
+    from pathlib import Path
+    seed = json.loads(Path("data/decision_tallies.json").read_text())["tallies"]
+    assert seed["A/RES/81/7"] == {"yes": 130, "no": 17, "abstain": 25} and seed["A/RES/81/2"] is None
+    assert sum(v is not None for v in seed.values()) > 150

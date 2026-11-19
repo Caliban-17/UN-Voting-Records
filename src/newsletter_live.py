@@ -58,7 +58,8 @@ def sections(edition):
         add("chart", membership_chart(lead, _lead_chart_title(lead)))
 
     recorded = [d for d in decisions if d["tally"]]
-    quiet = [d for d in decisions if not d["tally"]]
+    quiet = [d for d in decisions if not d["tally"] and d.get("adoption") != "unconfirmed"]
+    unconfirmed = [d for d in decisions if not d["tally"] and d.get("adoption") == "unconfirmed"]
     late = live.get("late_decisions", [])
     add("h2", "The votes")
     for item in recorded:
@@ -67,6 +68,10 @@ def sections(edition):
     if quiet:
         add("p", "Adopted without a vote: " + "; ".join(d["title"] for d in quiet[:8])
             + (f"; and {len(quiet) - 8} more." if len(quiet) > 8 else "."))
+    if unconfirmed:
+        add("p", "Adopted, but the official register is not currently showing whether by vote: "
+            + "; ".join(d["title"] for d in unconfirmed[:8])
+            + (f"; and {len(unconfirmed) - 8} more." if len(unconfirmed) > 8 else "."))
     for item in late:
         add("link", item["title"], item.get("url") or item["source_url"])
         add("small", _outcome(item, compare=False) + f" Published in the register only on {day(item['registered'])}.")

@@ -1,0 +1,1123 @@
+{
+ "as_of": "2026-11-10",
+ "note": "Adoption outcomes read from the General Assembly register while it still published vote counts. A floor: a recorded tally is never replaced by 'without a vote'.",
+ "tallies": {
+  "A/RES/80/1": {
+   "yes": 145,
+   "no": 5,
+   "abstain": 6
+  },
+  "A/RES/80/10": {
+   "yes": 123,
+   "no": 3,
+   "abstain": 2
+  },
+  "A/RES/80/100": null,
+  "A/RES/80/101": null,
+  "A/RES/80/102": null,
+  "A/RES/80/103": {
+   "yes": 155,
+   "no": 2,
+   "abstain": 7
+  },
+  "A/RES/80/104": {
+   "yes": 172,
+   "no": 3,
+   "abstain": 1
+  },
+  "A/RES/80/105": {
+   "yes": 132,
+   "no": 3,
+   "abstain": 40
+  },
+  "A/RES/80/106": {
+   "yes": 116,
+   "no": 2,
+   "abstain": 54
+  },
+  "A/RES/80/107": {
+   "yes": 168,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/108": {
+   "yes": 169,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/109": null,
+  "A/RES/80/11": null,
+  "A/RES/80/110": {
+   "yes": 166,
+   "no": 1,
+   "abstain": 4
+  },
+  "A/RES/80/111": {
+   "yes": 97,
+   "no": 8,
+   "abstain": 39
+  },
+  "A/RES/80/112": {
+   "yes": 153,
+   "no": 1,
+   "abstain": 6
+  },
+  "A/RES/80/113": {
+   "yes": 162,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/114": null,
+  "A/RES/80/115": null,
+  "A/RES/80/116": {
+   "yes": 139,
+   "no": 12,
+   "abstain": 19
+  },
+  "A/RES/80/117": {
+   "yes": 175,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/118": {
+   "yes": 181,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/119": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/12": null,
+  "A/RES/80/120": {
+   "yes": 127,
+   "no": 14,
+   "abstain": 38
+  },
+  "A/RES/80/121": {
+   "yes": 131,
+   "no": 3,
+   "abstain": 47
+  },
+  "A/RES/80/122": {
+   "yes": 173,
+   "no": 3,
+   "abstain": 8
+  },
+  "A/RES/80/123": {
+   "yes": 132,
+   "no": 2,
+   "abstain": 49
+  },
+  "A/RES/80/124": {
+   "yes": 180,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/125": {
+   "yes": 181,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/126": {
+   "yes": 176,
+   "no": 1,
+   "abstain": 5
+  },
+  "A/RES/80/127": {
+   "yes": 181,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/128": {
+   "yes": 122,
+   "no": 3,
+   "abstain": 55
+  },
+  "A/RES/80/129": {
+   "yes": 180,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/13": {
+   "yes": 129,
+   "no": 5,
+   "abstain": 42
+  },
+  "A/RES/80/130": {
+   "yes": 163,
+   "no": 9,
+   "abstain": 8
+  },
+  "A/RES/80/131": {
+   "yes": 179,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/132": {
+   "yes": 177,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/133": {
+   "yes": 138,
+   "no": 27,
+   "abstain": 11
+  },
+  "A/RES/80/134": {
+   "yes": 152,
+   "no": 4,
+   "abstain": 14
+  },
+  "A/RES/80/135": {
+   "yes": 180,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/136": {
+   "yes": 182,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/137": {
+   "yes": 181,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/138": {
+   "yes": 181,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/139": {
+   "yes": 181,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/14": null,
+  "A/RES/80/140": {
+   "yes": 180,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/141": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/142": {
+   "yes": 180,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/143": {
+   "yes": 178,
+   "no": 4,
+   "abstain": 2
+  },
+  "A/RES/80/144": {
+   "yes": 178,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/145": {
+   "yes": 174,
+   "no": 1,
+   "abstain": 3
+  },
+  "A/RES/80/146": {
+   "yes": 177,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/147": {
+   "yes": 180,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/148": {
+   "yes": 180,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/149": {
+   "yes": 178,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/15": null,
+  "A/RES/80/150": {
+   "yes": 178,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/151": {
+   "yes": 181,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/152": {
+   "yes": 160,
+   "no": 2,
+   "abstain": 13
+  },
+  "A/RES/80/153": {
+   "yes": 181,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/154": {
+   "yes": 125,
+   "no": 52,
+   "abstain": 1
+  },
+  "A/RES/80/155": {
+   "yes": 180,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/156": {
+   "yes": 182,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/157": {
+   "yes": 180,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/158": {
+   "yes": 156,
+   "no": 8,
+   "abstain": 10
+  },
+  "A/RES/80/159": null,
+  "A/RES/80/16": null,
+  "A/RES/80/160": null,
+  "A/RES/80/161": null,
+  "A/RES/80/162": null,
+  "A/RES/80/163": null,
+  "A/RES/80/164": null,
+  "A/RES/80/165": null,
+  "A/RES/80/166": null,
+  "A/RES/80/167": null,
+  "A/RES/80/168": null,
+  "A/RES/80/169": null,
+  "A/RES/80/17": {
+   "yes": 173,
+   "no": 3,
+   "abstain": 3
+  },
+  "A/RES/80/170": null,
+  "A/RES/80/171": null,
+  "A/RES/80/172": null,
+  "A/RES/80/173": null,
+  "A/RES/80/174": null,
+  "A/RES/80/175": {
+   "yes": 179,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/176": {
+   "yes": 179,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/177": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/178": {
+   "yes": 180,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/179": null,
+  "A/RES/80/18": {
+   "yes": 120,
+   "no": 0,
+   "abstain": 60
+  },
+  "A/RES/80/180": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 1
+  },
+  "A/RES/80/181": {
+   "yes": 177,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/182": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/183": null,
+  "A/RES/80/184": {
+   "yes": 178,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/185": {
+   "yes": 175,
+   "no": 3,
+   "abstain": 3
+  },
+  "A/RES/80/186": {
+   "yes": 179,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/187": {
+   "yes": 171,
+   "no": 4,
+   "abstain": 5
+  },
+  "A/RES/80/188": {
+   "yes": 179,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/189": {
+   "yes": 114,
+   "no": 7,
+   "abstain": 59
+  },
+  "A/RES/80/19": {
+   "yes": 177,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/190": {
+   "yes": 176,
+   "no": 4,
+   "abstain": 1
+  },
+  "A/RES/80/191": {
+   "yes": 166,
+   "no": 3,
+   "abstain": 8
+  },
+  "A/RES/80/192": {
+   "yes": 119,
+   "no": 51,
+   "abstain": 10
+  },
+  "A/RES/80/193": {
+   "yes": 127,
+   "no": 16,
+   "abstain": 40
+  },
+  "A/RES/80/194": {
+   "yes": 121,
+   "no": 53,
+   "abstain": 5
+  },
+  "A/RES/80/195": {
+   "yes": 164,
+   "no": 8,
+   "abstain": 9
+  },
+  "A/RES/80/196": null,
+  "A/RES/80/197": {
+   "yes": 176,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/198": {
+   "yes": 173,
+   "no": 3,
+   "abstain": 2
+  },
+  "A/RES/80/199": {
+   "yes": 173,
+   "no": 1,
+   "abstain": 3
+  },
+  "A/RES/80/2": null,
+  "A/RES/80/20": {
+   "yes": 123,
+   "no": 52,
+   "abstain": 5
+  },
+  "A/RES/80/200": null,
+  "A/RES/80/201": null,
+  "A/RES/80/202": null,
+  "A/RES/80/203": {
+   "yes": 169,
+   "no": 3,
+   "abstain": 5
+  },
+  "A/RES/80/204": {
+   "yes": 175,
+   "no": 3,
+   "abstain": 2
+  },
+  "A/RES/80/205": {
+   "yes": 122,
+   "no": 5,
+   "abstain": 1
+  },
+  "A/RES/80/206": {
+   "yes": 124,
+   "no": 53,
+   "abstain": 1
+  },
+  "A/RES/80/207": {
+   "yes": 127,
+   "no": 23,
+   "abstain": 32
+  },
+  "A/RES/80/208": {
+   "yes": 119,
+   "no": 55,
+   "abstain": 7
+  },
+  "A/RES/80/209": {
+   "yes": 122,
+   "no": 56,
+   "abstain": 0
+  },
+  "A/RES/80/21": {
+   "yes": 121,
+   "no": 50,
+   "abstain": 7
+  },
+  "A/RES/80/210": {
+   "yes": 176,
+   "no": 3,
+   "abstain": 2
+  },
+  "A/RES/80/211": {
+   "yes": 174,
+   "no": 3,
+   "abstain": 3
+  },
+  "A/RES/80/212": {
+   "yes": 178,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/213": {
+   "yes": 177,
+   "no": 3,
+   "abstain": 1
+  },
+  "A/RES/80/214": {
+   "yes": 167,
+   "no": 2,
+   "abstain": 11
+  },
+  "A/RES/80/215": {
+   "yes": 174,
+   "no": 3,
+   "abstain": 4
+  },
+  "A/RES/80/216": {
+   "yes": 176,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/217": null,
+  "A/RES/80/218": {
+   "yes": 147,
+   "no": 4,
+   "abstain": 27
+  },
+  "A/RES/80/219": null,
+  "A/RES/80/22": null,
+  "A/RES/80/220": null,
+  "A/RES/80/221": null,
+  "A/RES/80/222": {
+   "yes": 78,
+   "no": 27,
+   "abstain": 64
+  },
+  "A/RES/80/223": {
+   "yes": 79,
+   "no": 16,
+   "abstain": 73
+  },
+  "A/RES/80/224": {
+   "yes": 114,
+   "no": 2,
+   "abstain": 47
+  },
+  "A/RES/80/225": null,
+  "A/RES/80/226": null,
+  "A/RES/80/227": null,
+  "A/RES/80/228": {
+   "yes": 139,
+   "no": 3,
+   "abstain": 38
+  },
+  "A/RES/80/229": null,
+  "A/RES/80/23": {
+   "yes": 118,
+   "no": 9,
+   "abstain": 44
+  },
+  "A/RES/80/230": null,
+  "A/RES/80/231": null,
+  "A/RES/80/231 B": null,
+  "A/RES/80/232": null,
+  "A/RES/80/233": null,
+  "A/RES/80/234": null,
+  "A/RES/80/235": null,
+  "A/RES/80/236": null,
+  "A/RES/80/237": null,
+  "A/RES/80/238": null,
+  "A/RES/80/239": null,
+  "A/RES/80/24": {
+   "yes": 114,
+   "no": 44,
+   "abstain": 19
+  },
+  "A/RES/80/240 A": null,
+  "A/RES/80/240 B": null,
+  "A/RES/80/241 A": null,
+  "A/RES/80/241 B": null,
+  "A/RES/80/242": null,
+  "A/RES/80/243 A": null,
+  "A/RES/80/243 B": null,
+  "A/RES/80/244": null,
+  "A/RES/80/245": null,
+  "A/RES/80/246": null,
+  "A/RES/80/247": {
+   "yes": 149,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/248": {
+   "yes": 150,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/249": {
+   "yes": 143,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/25": {
+   "yes": 178,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/250": {
+   "yes": 123,
+   "no": 3,
+   "abstain": 52
+  },
+  "A/RES/80/251": {
+   "yes": 168,
+   "no": 4,
+   "abstain": 0
+  },
+  "A/RES/80/252": null,
+  "A/RES/80/253": null,
+  "A/RES/80/254": {
+   "yes": 97,
+   "no": 6,
+   "abstain": 26
+  },
+  "A/RES/80/255": null,
+  "A/RES/80/256": {
+   "yes": 136,
+   "no": 3,
+   "abstain": 11
+  },
+  "A/RES/80/257": {
+   "yes": 176,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/258": {
+   "yes": 147,
+   "no": 6,
+   "abstain": 23
+  },
+  "A/RES/80/259": null,
+  "A/RES/80/26": null,
+  "A/RES/80/260": null,
+  "A/RES/80/261": null,
+  "A/RES/80/262": null,
+  "A/RES/80/263": {
+   "yes": 141,
+   "no": 8,
+   "abstain": 28
+  },
+  "A/RES/80/264": {
+   "yes": 107,
+   "no": 8,
+   "abstain": 55
+  },
+  "A/RES/80/265": {
+   "yes": 161,
+   "no": 3,
+   "abstain": 4
+  },
+  "A/RES/80/266": null,
+  "A/RES/80/267": {
+   "yes": 165,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/268": {
+   "yes": 149,
+   "no": 8,
+   "abstain": 14
+  },
+  "A/RES/80/269": {
+   "yes": 153,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/27": null,
+  "A/RES/80/270": null,
+  "A/RES/80/271": null,
+  "A/RES/80/272": null,
+  "A/RES/80/273": null,
+  "A/RES/80/274": null,
+  "A/RES/80/275": null,
+  "A/RES/80/276": null,
+  "A/RES/80/277": null,
+  "A/RES/80/278": null,
+  "A/RES/80/279": null,
+  "A/RES/80/28": {
+   "yes": 150,
+   "no": 0,
+   "abstain": 25
+  },
+  "A/RES/80/280": null,
+  "A/RES/80/281": null,
+  "A/RES/80/282": {
+   "yes": 137,
+   "no": 4,
+   "abstain": 1
+  },
+  "A/RES/80/283": null,
+  "A/RES/80/284": null,
+  "A/RES/80/285": null,
+  "A/RES/80/286": {
+   "yes": 140,
+   "no": 3,
+   "abstain": 1
+  },
+  "A/RES/80/287": null,
+  "A/RES/80/288": {
+   "yes": 153,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/289": {
+   "yes": 151,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/29": {
+   "yes": 179,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/290": {
+   "yes": 141,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/291": {
+   "yes": 148,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/292": {
+   "yes": 162,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/293 A": {
+   "yes": 165,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/293 B": {
+   "yes": 164,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/294": {
+   "yes": 169,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/295": null,
+  "A/RES/80/296": {
+   "yes": 167,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/297": {
+   "yes": 158,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/298": null,
+  "A/RES/80/299": {
+   "yes": 142,
+   "no": 3,
+   "abstain": 13
+  },
+  "A/RES/80/3": null,
+  "A/RES/80/30": null,
+  "A/RES/80/300": {
+   "yes": 140,
+   "no": 1,
+   "abstain": 3
+  },
+  "A/RES/80/301": null,
+  "A/RES/80/302": {
+   "yes": 144,
+   "no": 2,
+   "abstain": 3
+  },
+  "A/RES/80/303": {
+   "yes": 139,
+   "no": 3,
+   "abstain": 6
+  },
+  "A/RES/80/304": null,
+  "A/RES/80/305": null,
+  "A/RES/80/306": {
+   "yes": 132,
+   "no": 4,
+   "abstain": 1
+  },
+  "A/RES/80/307": {
+   "yes": 164,
+   "no": 1,
+   "abstain": 6
+  },
+  "A/RES/80/308": {
+   "yes": 174,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/309": null,
+  "A/RES/80/31": {
+   "yes": 145,
+   "no": 5,
+   "abstain": 28
+  },
+  "A/RES/80/310": null,
+  "A/RES/80/311": null,
+  "A/RES/80/32": {
+   "yes": 178,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/33": {
+   "yes": 127,
+   "no": 35,
+   "abstain": 16
+  },
+  "A/RES/80/34": {
+   "yes": 155,
+   "no": 9,
+   "abstain": 11
+  },
+  "A/RES/80/35": {
+   "yes": 159,
+   "no": 1,
+   "abstain": 19
+  },
+  "A/RES/80/36": null,
+  "A/RES/80/37": {
+   "yes": 117,
+   "no": 50,
+   "abstain": 11
+  },
+  "A/RES/80/38": null,
+  "A/RES/80/39": {
+   "yes": 130,
+   "no": 39,
+   "abstain": 12
+  },
+  "A/RES/80/4": {
+   "yes": 165,
+   "no": 7,
+   "abstain": 12
+  },
+  "A/RES/80/40": {
+   "yes": 125,
+   "no": 6,
+   "abstain": 48
+  },
+  "A/RES/80/41": null,
+  "A/RES/80/42": null,
+  "A/RES/80/43": {
+   "yes": 171,
+   "no": 0,
+   "abstain": 5
+  },
+  "A/RES/80/44": {
+   "yes": 173,
+   "no": 3,
+   "abstain": 1
+  },
+  "A/RES/80/45": {
+   "yes": 112,
+   "no": 45,
+   "abstain": 18
+  },
+  "A/RES/80/46": {
+   "yes": 153,
+   "no": 1,
+   "abstain": 22
+  },
+  "A/RES/80/47": null,
+  "A/RES/80/48": {
+   "yes": 147,
+   "no": 5,
+   "abstain": 26
+  },
+  "A/RES/80/49": {
+   "yes": 135,
+   "no": 36,
+   "abstain": 9
+  },
+  "A/RES/80/5": null,
+  "A/RES/80/50": {
+   "yes": 135,
+   "no": 11,
+   "abstain": 33
+  },
+  "A/RES/80/51": {
+   "yes": 129,
+   "no": 41,
+   "abstain": 9
+  },
+  "A/RES/80/52": {
+   "yes": 138,
+   "no": 2,
+   "abstain": 35
+  },
+  "A/RES/80/53": {
+   "yes": 170,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/54": {
+   "yes": 119,
+   "no": 45,
+   "abstain": 12
+  },
+  "A/RES/80/55": {
+   "yes": 174,
+   "no": 2,
+   "abstain": 0
+  },
+  "A/RES/80/56": {
+   "yes": 170,
+   "no": 4,
+   "abstain": 5
+  },
+  "A/RES/80/57": {
+   "yes": 164,
+   "no": 6,
+   "abstain": 7
+  },
+  "A/RES/80/58": {
+   "yes": 167,
+   "no": 5,
+   "abstain": 5
+  },
+  "A/RES/80/59": {
+   "yes": 116,
+   "no": 50,
+   "abstain": 11
+  },
+  "A/RES/80/6": {
+   "yes": 94,
+   "no": 10,
+   "abstain": 34
+  },
+  "A/RES/80/60": null,
+  "A/RES/80/61": null,
+  "A/RES/80/62": null,
+  "A/RES/80/63": {
+   "yes": 171,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/64": null,
+  "A/RES/80/65": {
+   "yes": 146,
+   "no": 1,
+   "abstain": 21
+  },
+  "A/RES/80/66": {
+   "yes": 172,
+   "no": 1,
+   "abstain": 1
+  },
+  "A/RES/80/67": {
+   "yes": 145,
+   "no": 6,
+   "abstain": 30
+  },
+  "A/RES/80/68": null,
+  "A/RES/80/69": {
+   "yes": 168,
+   "no": 4,
+   "abstain": 4
+  },
+  "A/RES/80/7": {
+   "yes": 146,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/80/70": {
+   "yes": 176,
+   "no": 1,
+   "abstain": 3
+  },
+  "A/RES/80/71": null,
+  "A/RES/80/72": {
+   "yes": 151,
+   "no": 11,
+   "abstain": 11
+  },
+  "A/RES/80/73": {
+   "yes": 123,
+   "no": 7,
+   "abstain": 41
+  },
+  "A/RES/80/74": {
+   "yes": 166,
+   "no": 1,
+   "abstain": 2
+  },
+  "A/RES/80/75": null,
+  "A/RES/80/76": {
+   "yes": 171,
+   "no": 1,
+   "abstain": 0
+  },
+  "A/RES/80/77": {
+   "yes": 145,
+   "no": 10,
+   "abstain": 18
+  },
+  "A/RES/80/78": {
+   "yes": 151,
+   "no": 10,
+   "abstain": 14
+  },
+  "A/RES/80/79": {
+   "yes": 157,
+   "no": 10,
+   "abstain": 9
+  },
+  "A/RES/80/8": null,
+  "A/RES/80/80": {
+   "yes": 88,
+   "no": 19,
+   "abstain": 64
+  },
+  "A/RES/80/81": {
+   "yes": 146,
+   "no": 13,
+   "abstain": 17
+  },
+  "A/RES/80/82": {
+   "yes": 146,
+   "no": 6,
+   "abstain": 23
+  },
+  "A/RES/80/83": {
+   "yes": 169,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/84 A": {
+   "yes": 173,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/84 B": {
+   "yes": 174,
+   "no": 3,
+   "abstain": 0
+  },
+  "A/RES/80/85": {
+   "yes": 174,
+   "no": 2,
+   "abstain": 3
+  },
+  "A/RES/80/86": {
+   "yes": 151,
+   "no": 2,
+   "abstain": 2
+  },
+  "A/RES/80/87": {
+   "yes": 124,
+   "no": 2,
+   "abstain": 51
+  },
+  "A/RES/80/88": null,
+  "A/RES/80/89": null,
+  "A/RES/80/9": null,
+  "A/RES/80/90": {
+   "yes": 156,
+   "no": 2,
+   "abstain": 7
+  },
+  "A/RES/80/91": null,
+  "A/RES/80/92": null,
+  "A/RES/80/93": null,
+  "A/RES/80/94": null,
+  "A/RES/80/95": null,
+  "A/RES/80/96": {
+   "yes": 153,
+   "no": 2,
+   "abstain": 9
+  },
+  "A/RES/80/97": null,
+  "A/RES/80/98": null,
+  "A/RES/80/99": null,
+  "A/RES/81/1": {
+   "yes": 152,
+   "no": 3,
+   "abstain": 4
+  },
+  "A/RES/81/2": null,
+  "A/RES/81/3": null,
+  "A/RES/81/4": {
+   "yes": 95,
+   "no": 5,
+   "abstain": 37
+  },
+  "A/RES/81/5": {
+   "yes": 153,
+   "no": 3,
+   "abstain": 2
+  },
+  "A/RES/81/6": {
+   "yes": 150,
+   "no": 2,
+   "abstain": 1
+  },
+  "A/RES/81/7": {
+   "yes": 130,
+   "no": 17,
+   "abstain": 25
+  },
+  "A/RES/81/9": {
+   "yes": 93,
+   "no": 13,
+   "abstain": 36
+  }
+ }
+}
