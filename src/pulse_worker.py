@@ -30,7 +30,7 @@ def refresh_all(directory=None, dataframe=None, collect=True):
         except BlockingIOError:
             return None
         from src.un_bodies import read_bodies, refresh_bodies
-        from src.un_decisions import read_decisions, refresh_decisions
+        from src.un_decisions import refresh_decisions
         if collect:
             snapshot, decisions, bodies = refresh(directory), refresh_decisions(directory), refresh_bodies(directory)
         else:
