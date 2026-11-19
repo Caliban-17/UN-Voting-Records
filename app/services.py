@@ -57,11 +57,12 @@ def get_df() -> Optional[pd.DataFrame]:
     """The voting frame. In lazy mode this loads it on first use and marks it
     as in use; otherwise it is whatever startup loaded."""
     global _last_used
+    _last_used = time.time()          # claim it before loading, so an unload cannot slip in between
     if df_global is None and idle_minutes() > 0 and Path(UN_VOTES_CSV_PATH).exists():
         with _load_lock:
             if df_global is None:
                 load_data()
-    _last_used = time.time()
+            _last_used = time.time()
     return df_global
 
 
@@ -86,6 +87,10 @@ def unload_if_idle(now: Optional[float] = None) -> bool:
     if limit <= 0 or df_global is None or (now or time.time()) - _last_used < limit * 60:
         return False
     with _load_lock:
+        # Decided again under the lock: a request may have loaded or used the
+        # frame while this thread was waiting for it.
+        if df_global is None or (now or time.time()) - _last_used < limit * 60:
+            return False
         df_global = None
         from src import lenses, story_analysis
         from src.cache_utils import api_cache

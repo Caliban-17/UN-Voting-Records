@@ -337,3 +337,27 @@ def test_health_reports_memory_without_loading_data(monkeypatch):
     app.register_blueprint(core.bp)
     body = app.test_client().get("/health").json
     assert body["data_loaded"] is False and body["lazy_data"] is True and body["memory_mb"] > 0
+
+
+def test_unload_rechecks_idleness_after_waiting_for_a_load(monkeypatch, tmp_path):
+    """The idle check could pass while a request was still loading the frame;
+    the unload then threw away data that had just been used."""
+    import threading
+    import time
+
+    import pandas as pd
+
+    from app import services
+
+    frame = pd.DataFrame({"country_identifier": ["USA"]})
+    monkeypatch.setattr(services, "df_global", frame)
+    monkeypatch.setenv("DATA_IDLE_MINUTES", "10")
+    monkeypatch.setattr(services, "_last_used", time.time() - 3600)      # idle: the first check passes
+    outcome = []
+    with services._load_lock:                                             # a request is mid-load
+        worker = threading.Thread(target=lambda: outcome.append(services.unload_if_idle()))
+        worker.start()
+        time.sleep(0.2)
+        services._last_used = time.time()                                 # ...and has just used the frame
+    worker.join(5)
+    assert outcome == [False] and services.peek_df() is frame
