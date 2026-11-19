@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+from pathlib import Path
 import os
 import re
 import weakref
@@ -33,11 +34,83 @@ logger = logging.getLogger(__name__)
 # ── Global data ──────────────────────────────────────────────────────────────
 
 df_global: Optional[pd.DataFrame] = None
+_load_lock = threading.Lock()
+_last_used = 0.0
+
+
+def idle_minutes() -> float:
+    """``DATA_IDLE_MINUTES`` > 0 turns on lazy data: the frame (about 1 GB) is
+    loaded when a request first needs it and released after that many idle
+    minutes, so a site nobody is looking at holds a fifth of the memory."""
+    try:
+        return max(0.0, float(os.getenv("DATA_IDLE_MINUTES", "0")))
+    except ValueError:
+        return 0.0
+
+
+def peek_df() -> Optional[pd.DataFrame]:
+    """The frame if it happens to be loaded; never loads it."""
+    return df_global
 
 
 def get_df() -> Optional[pd.DataFrame]:
-    """Retrieve the global DataFrame to avoid stale imports."""
+    """The voting frame. In lazy mode this loads it on first use and marks it
+    as in use; otherwise it is whatever startup loaded."""
+    global _last_used
+    if df_global is None and idle_minutes() > 0 and Path(UN_VOTES_CSV_PATH).exists():
+        with _load_lock:
+            if df_global is None:
+                load_data()
+    _last_used = time.time()
     return df_global
+
+
+def release_memory() -> None:
+    """Hand freed memory back to the operating system where the C library
+    allows it (glibc keeps it otherwise, and the bill is for what is held)."""
+    import ctypes
+    import gc
+
+    gc.collect()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
+def unload_if_idle(now: Optional[float] = None) -> bool:
+    """Drop the frame and everything computed from it once nothing has asked
+    for it for ``DATA_IDLE_MINUTES``. Returns True when it unloaded."""
+    global df_global
+    limit = idle_minutes()
+    if limit <= 0 or df_global is None or (now or time.time()) - _last_used < limit * 60:
+        return False
+    with _load_lock:
+        df_global = None
+        from src import lenses, story_analysis
+        from src.cache_utils import api_cache
+        story_analysis._res_cache.clear()
+        lenses._timeline_cache.clear()
+        for cache in (api_cache, model_registry, soft_power_trends_registry, network_animation_registry):
+            cache.clear()
+    release_memory()
+    logger.info("Voting data released after %.0f idle minutes", limit)
+    return True
+
+
+def drop_data() -> None:
+    """Release the frame now (the file behind it changed)."""
+    global _last_used
+    _last_used = 0.0
+    unload_if_idle(now=time.time() + idle_minutes() * 60 + 1)
+
+
+def memory_mb() -> Optional[int]:
+    try:
+        import psutil
+        return int(psutil.Process().memory_info().rss / 1e6)
+    except Exception:
+        return None
 
 
 def load_data(use_cache=True) -> bool:
@@ -77,16 +150,16 @@ def load_data(use_cache=True) -> bool:
 
 
 def get_year_bounds() -> tuple[int, int]:
-    if df_global is None or df_global.empty:
+    if get_df() is None or get_df().empty:
         # UN GA started voting in 1946; the upper bound is whatever year
         # we're in right now. Never hardcode a year.
         return 1946, datetime.now(timezone.utc).year
-    return int(df_global["year"].min()), int(df_global["year"].max())
+    return int(get_df()["year"].min()), int(get_df()["year"].max())
 
 
 def data_freshness() -> dict:
     """How fresh is the underlying voting data? Used by /api/data/freshness."""
-    if df_global is None or df_global.empty:
+    if get_df() is None or get_df().empty:
         return {
             "loaded": False,
             "records": 0,
@@ -97,7 +170,7 @@ def data_freshness() -> dict:
             "is_stale": True,
             "stale_threshold_days": 60,
         }
-    dates = pd.to_datetime(df_global["date"], errors="coerce").dropna()
+    dates = pd.to_datetime(get_df()["date"], errors="coerce").dropna()
     latest_dt = dates.max() if not dates.empty else None
     min_year, max_year = get_year_bounds()
     days_since = None
@@ -106,7 +179,7 @@ def data_freshness() -> dict:
     threshold = 60
     return {
         "loaded": True,
-        "records": int(len(df_global)),
+        "records": int(len(get_df())),
         "min_year": min_year,
         "max_year": max_year,
         "latest_vote_date": latest_dt.strftime("%Y-%m-%d") if latest_dt is not None else None,
@@ -124,11 +197,11 @@ def country_codes() -> set[str]:
     """ISO-3 codes in the loaded frame, computed once per frame: building the
     set scans every row, and every request with a country parameter asks."""
     global _country_code_cache
-    if df_global is None or df_global.empty:
+    if get_df() is None or get_df().empty:
         return set()
-    if _country_code_cache is None or _country_code_cache[0]() is not df_global:
-        codes = {str(c).strip().upper() for c in df_global["country_identifier"].dropna().unique()}
-        _country_code_cache = (weakref.ref(df_global), codes)
+    if _country_code_cache is None or _country_code_cache[0]() is not get_df():
+        codes = {str(c).strip().upper() for c in get_df()["country_identifier"].dropna().unique()}
+        _country_code_cache = (weakref.ref(get_df()), codes)
     return _country_code_cache[1]
 
 
@@ -182,13 +255,13 @@ def country_names() -> dict[str, str]:
     global _country_name_cache
     if _country_name_cache is not None:
         return _country_name_cache
-    if df_global is None or df_global.empty or "country_name" not in df_global.columns:
+    if get_df() is None or get_df().empty or "country_name" not in get_df().columns:
         _country_name_cache = {}
         return _country_name_cache
     from src.country_display import display_lookup
 
     names = (
-        df_global[["country_identifier", "country_name"]]
+        get_df()[["country_identifier", "country_name"]]
         .dropna()
         .drop_duplicates(subset=["country_identifier"])
     )
@@ -495,13 +568,13 @@ def compute_cluster_stability(
 def prepare_ml_split(
     train_end: int, test_start: int
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    if df_global is None or df_global.empty:
+    if get_df() is None or get_df().empty:
         raise ValueError("Data not loaded")
     required_cols = ["country_identifier", "issue", "vote", "year"]
-    missing = [c for c in required_cols if c not in df_global.columns]
+    missing = [c for c in required_cols if c not in get_df().columns]
     if missing:
         raise ValueError(f"Missing columns required for diagnostics: {missing}")
-    df_ml = df_global[required_cols].dropna(
+    df_ml = get_df()[required_cols].dropna(
         subset=["country_identifier", "issue", "vote"]
     )
     train_df = df_ml[df_ml["year"] <= train_end].copy()
@@ -639,7 +712,7 @@ def compute_training_payload(
         progress(0.15, "Training vote predictor")
 
     model, accuracy, report, _, n_train, n_test = train_vote_predictor(
-        df_global, train_end, test_start
+        get_df(), train_end, test_start
     )
     if model is None:
         raise ValueError("Model training failed")
@@ -691,7 +764,7 @@ def compute_soft_power_trends_payload(
 
     if progress:
         progress(0.1, "Computing yearly soft power traces")
-    trends_df = track_soft_power_over_time(df_global, start_year, end_year)
+    trends_df = track_soft_power_over_time(get_df(), start_year, end_year)
     if trends_df.empty:
         raise ValueError("No trend data available")
     if progress:
@@ -729,7 +802,7 @@ def compute_network_animation_payload(
     if progress:
         progress(0.1, f"Building networks over time ({window} windows)")
 
-    networks = build_network_over_time(df_global, start_year, end_year, window=window)
+    networks = build_network_over_time(get_df(), start_year, end_year, window=window)
     if not networks:
         raise ValueError("No networks could be built for the specified period.")
 

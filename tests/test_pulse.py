@@ -302,3 +302,34 @@ def test_items_from_another_language_section_are_rejected():
     assert parse_feed(french, SOURCES[2], NOW) == ([], 1)
     english = feed(link="https://www.ungeneva.org/en/news-media/news/2026/11/1")
     assert parse_feed(english, SOURCES[2], NOW)[1] == 0
+
+
+def test_compose_runs_only_when_its_inputs_change(tmp_path, monkeypatch):
+    from src import pulse_worker
+    from src.pulse import atomic_json
+    monkeypatch.setenv("PULSE_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("RAILWAY_DEPLOYMENT_ID", raising=False)
+    record = {"symbol": "A/RES/81/1", "date": datetime.now(UTC).date().isoformat(), "tally": {"yes": 1, "no": 0, "abstain": 0}}
+    atomic_json(tmp_path / "decisions.json", {"records": [record]})
+    first = pulse_worker.compose_key(tmp_path, [1, 2])
+    assert first == pulse_worker.compose_key(tmp_path, [1, 2])                 # nothing new: no reason to load data
+    assert first != pulse_worker.compose_key(tmp_path, [1, 3])                 # new voting file
+    atomic_json(tmp_path / "decisions.json", {"records": [record, {**record, "symbol": "A/RES/81/2"}]})
+    assert first != pulse_worker.compose_key(tmp_path, [1, 2])                 # a new decision
+    monkeypatch.setenv("RAILWAY_DEPLOYMENT_ID", "new-deploy")
+    assert pulse_worker.compose_key(tmp_path, [1, 2]) != pulse_worker.compose_key(tmp_path, [1, 3])
+    calls = []
+    assert pulse_worker.compose_in_subprocess(lambda cmd, **kw: calls.append(cmd) or type("R", (), {"returncode": 0})())
+    assert calls[0][-3:] == ["-m", "src.pulse_worker", "compose"]
+
+
+def test_composing_from_disk_fetches_nothing(tmp_path, monkeypatch):
+    from src import pulse_worker
+    def no_network(*args, **kwargs):
+        raise AssertionError("compose must not fetch")
+    monkeypatch.setattr(pulse_worker, "refresh", no_network)
+    monkeypatch.setattr("src.un_decisions.refresh_decisions", no_network)
+    monkeypatch.setattr("src.un_bodies.refresh_bodies", no_network)
+    monkeypatch.setattr("src.newsletter_publisher.publish_newsletter", lambda *args: {"changed": False})
+    assert pulse_worker.refresh_all(tmp_path, votes(), collect=False) is not None
+    assert (tmp_path / "research.json").exists()

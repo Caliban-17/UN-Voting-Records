@@ -17,7 +17,10 @@ from src.pulse import UTC, atomic_json, data_dir, refresh
 logger = logging.getLogger(__name__)
 
 
-def refresh_all(directory=None, dataframe=None):
+def refresh_all(directory=None, dataframe=None, collect=True):
+    """One pass: collect the sources, then (given the voting frame) rebuild the
+    research and the edition. ``collect=False`` composes from what the last
+    collection left on disk, without fetching anything again."""
     directory = directory or data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     # OS releases the lock after a crash. Gunicorn workers and a CLI can share it.
@@ -26,11 +29,13 @@ def refresh_all(directory=None, dataframe=None):
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return None
-        snapshot = refresh(directory)
-        from src.un_decisions import refresh_decisions
-        decisions = refresh_decisions(directory)
-        from src.un_bodies import refresh_bodies
-        bodies = refresh_bodies(directory)
+        from src.un_bodies import read_bodies, refresh_bodies
+        from src.un_decisions import read_decisions, refresh_decisions
+        if collect:
+            snapshot, decisions, bodies = refresh(directory), refresh_decisions(directory), refresh_bodies(directory)
+        else:
+            from src.pulse import read_snapshot
+            snapshot, decisions, bodies = read_snapshot(directory), read_decisions(directory), read_bodies(directory)
         if dataframe is not None:
             from src.research_brief import build_research_brief
             brief = build_research_brief(dataframe)
@@ -107,3 +112,97 @@ def start_worker(dataframe_provider, reload_data=None):
                 logger.exception("Automatic briefing refresh failed; retaining the last published edition")
             threading.Event().wait(min(interval, 60))
     threading.Thread(target=work, name="un-pulse", daemon=True).start()
+
+
+# ── lazy mode: the web process holds no voting data between uses ─────────────
+
+
+def compose_key(directory, version) -> str:
+    """What an edition is composed from, apart from headlines: when this is
+    unchanged there is nothing new to say and no reason to load the data."""
+    import hashlib
+    from datetime import timedelta
+    from src.un_bodies import read_bodies
+    from src.un_decisions import read_decisions
+
+    since = (datetime.now(UTC) - timedelta(days=35)).date().isoformat()
+    recent = [(r["symbol"], r["date"], r.get("tally"), r.get("first_seen_at"))
+              for r in read_decisions(directory).get("records", []) if r["date"] >= since]
+    vetoes = read_bodies(directory).get("vetoes", [])
+    parts = [version, datetime.now(UTC).date().isoformat(), recent, len(vetoes), vetoes[:1],
+             os.getenv("RAILWAY_DEPLOYMENT_ID", "")]
+    return hashlib.sha256(json.dumps(parts, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def compose_in_subprocess(runner=None) -> bool:
+    """Rebuild the research and the edition in a short-lived process, so the
+    gigabyte it needs is gone again a minute later."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    result = (runner or subprocess.run)([sys.executable, "-m", "src.pulse_worker", "compose"], cwd=root, timeout=900)
+    return result.returncode == 0
+
+
+def start_lazy_worker(idle_hook, drop_data, compose=compose_in_subprocess):
+    """The worker for a web process that loads voting data only on demand.
+
+    Every ``interval`` it collects the sources (no voting data needed). It
+    composes, in a subprocess, only when what an edition is built from has
+    changed: new data, a new decision or veto, a new day, a new deploy. Every
+    minute it lets the web process release data nobody is using."""
+    if os.getenv("PULSE_AUTO_REFRESH", "1") != "1":
+        return
+    interval = max(300, int(os.getenv("PULSE_REFRESH_SECONDS", "1800")))
+
+    def source_version():
+        from src.config import UN_VOTES_CSV_PATH
+        try:
+            stat = UN_VOTES_CSV_PATH.stat()
+            return [stat.st_mtime_ns, stat.st_size]
+        except OSError:
+            return None
+
+    def work():
+        from src.pulse import date_value, read_snapshot
+        seen_version = source_version()
+        while True:
+            try:
+                idle_hook()
+                version = source_version()
+                if version != seen_version:
+                    seen_version = version
+                    drop_data()          # the next request loads the new file
+                directory = data_dir()
+                checked = date_value(read_snapshot(directory).get("checked_at"))
+                if checked is None or (datetime.now(UTC) - checked).total_seconds() >= interval:
+                    refresh_all(directory)
+                state = directory / "compose-state.json"
+                try:
+                    done = json.loads(state.read_text()).get("key")
+                except (OSError, ValueError):
+                    done = None
+                key = compose_key(directory, version)
+                if version is not None and key != done:
+                    # Record the attempt either way: a compose that cannot
+                    # succeed must not be retried every minute.
+                    atomic_json(state, {"key": key, "ok": bool(compose())})
+            except Exception:
+                logger.exception("Automatic briefing refresh failed; retaining the last published edition")
+            threading.Event().wait(60)
+    threading.Thread(target=work, name="un-pulse", daemon=True).start()
+
+
+if __name__ == "__main__":
+    import sys
+
+    if sys.argv[1:] == ["compose"]:
+        logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(asctime)s %(levelname)s [%(name)s] %(message)s")
+        from src.config import UN_VOTES_CSV_PATH
+        from src.data_processing import load_and_preprocess_data
+
+        frame, _ = load_and_preprocess_data(str(UN_VOTES_CSV_PATH))
+        raise SystemExit(0 if refresh_all(dataframe=frame, collect=False) is not None else 1)
+    raise SystemExit("usage: python -m src.pulse_worker compose")

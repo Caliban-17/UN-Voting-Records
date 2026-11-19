@@ -169,7 +169,12 @@ def build_research_brief(df: pd.DataFrame, now: datetime | None = None) -> dict:
         from src.world_map import voting_blocs
         blocs = voting_blocs(df_all, _last_full_year(resolutions_table(df_all)))
         if blocs:
+            from src.country_display import display_lookup
+            raw = df_all.drop_duplicates("country_identifier").set_index("country_identifier")["country_name"].to_dict()
+            names = display_lookup(raw)
             result["blocs"] = blocs
+            # Kept with the brief so the page can caption the map without loading the data.
+            result["bloc_names"] = {code: names.get(code, code) for code in blocs["members"]}
     except Exception:  # the map is an extra; research must publish without it
         logger.warning("Voting blocs unavailable for this brief", exc_info=True)
     baseline_average = len(previous) / len(baseline_years)

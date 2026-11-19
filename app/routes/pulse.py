@@ -18,9 +18,8 @@ def bloc_view(brief):
     if not blocs:
         return None
     try:
-        from app.services import country_names
         from src.world_map import bloc_lines, bloc_map_svg, bloc_title
-        names = country_names() or {}
+        names = brief.get("bloc_names") or {}
         return {"svg": bloc_map_svg(blocs, bloc_title(blocs, names)), "lines": bloc_lines(blocs, names)}
     except Exception:
         return None

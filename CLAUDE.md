@@ -37,6 +37,13 @@ blocs are clustered from a complete year's agreement and named for what they hol
 (Washington, the Western group, the majority, Moscow), one hue per bloc and three shades
 by how tightly a member votes with it. Outlines are vendored Natural Earth
 (`static/vendor/countries_110m.json`), codes and flag emoji come from `data/iso_codes.csv`.
+On Railway `DATA_IDLE_MINUTES` is set, which turns on lazy data: the web process starts
+without the voting frame, `get_df()` loads it on first use, and it is released when idle
+(`services.unload_if_idle`), so an unvisited site holds about 0.2 GB instead of 1.2 GB.
+Use `peek_df()` where you only want to know whether data is loaded (health checks, the
+worker): `get_df()` loads. In that mode the worker (`start_lazy_worker`) collects sources
+in-process and composes research and editions in a short subprocess, and only when
+`compose_key` changes (new data, decision, veto, day or deploy).
 Hosting is Railway (`railway.json`, `scripts/start.sh`: one gunicorn worker, data on the
 `/data` volume, `scripts/sync_data_release.py` keeps the CSV on the newest data release
 from a separate process). With `SITE_PASSWORD` set, every page redirects to `/login`
